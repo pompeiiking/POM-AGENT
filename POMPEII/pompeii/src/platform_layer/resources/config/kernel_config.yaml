@@ -1,0 +1,12 @@
+kernel:
+  core_max_loops: 8
+  max_tool_calls_per_run: 8
+  tool_allowlist:
+    - echo
+    - take_photo
+    - ping
+    - add
+  tool_confirmation_required:
+    - echo
+    - take_photo
+

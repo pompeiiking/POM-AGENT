@@ -1,0 +1,4 @@
+# 运行时行为（非密钥）。会话存储统一为 SQLite（见 infra/SqliteSessionStore）。
+session_store:
+  backend: sqlite
+  sqlite_path: platform_layer/resources/data/sessions.db

@@ -1,0 +1,41 @@
+# 统一模型提供方配置（加载：app/config_loaders/model_provider_loader.load_model_registry）
+#
+# default_provider: 当 session_defaults.yaml 中 session.model 无法匹配任一 id 时回退到该 provider。
+# providers.<id>: 每个 id 可被 session.model 引用，用于按会话切换模型后端。
+#
+# backend 取值：
+#   - stub：不发起 HTTP，返回占位文本（便于无 Key 开发）。
+#   - openai_compatible：OpenAI 兼容 /v1/chat/completions（DeepSeek、OpenAI、多数聚合网关等）。
+#   - deepseek：与 openai_compatible 等价实现，若未设置 api_key_env 则默认使用环境变量 DEEPSEEK_API_KEY。
+#
+# 密钥：禁止写入本文件；在 params.api_key_env 中声明环境变量名，运行前在 shell 中 export。
+#
+# 可选（OpenAI 兼容原生工具）：
+#   params.tools: [ { "type": "function", "function": { "name": "...", "description": "...", "parameters": {...} } }, ... ]
+#   params.tool_choice: "auto" | "none" | { "type": "function", "function": { "name": "..." } }
+# 响应中的 message.tool_calls 会被解析为 ModelOutput(kind=tool_call)。
+
+default_provider: deepseek
+
+providers:
+  stub:
+    backend: stub
+    params: {}
+
+  deepseek:
+    backend: openai_compatible
+    params:
+      base_url: "https://api.deepseek.com"
+      model: "deepseek-chat"
+      api_key_env: "DEEPSEEK_API_KEY"
+      max_history: 10
+      timeout: 30.0
+
+  openai:
+    backend: openai_compatible
+    params:
+      base_url: "https://api.openai.com"
+      model: "gpt-4o-mini"
+      api_key_env: "OPENAI_API_KEY"
+      max_history: 10
+      timeout: 60.0

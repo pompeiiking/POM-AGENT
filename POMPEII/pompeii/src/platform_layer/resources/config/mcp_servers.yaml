@@ -1,0 +1,14 @@
+# MCP stdio 客户端（可选）。默认关闭；开启前请阅读官方 Registry 与安全清单：
+# - https://modelcontextprotocol.io/registry
+# - https://github.com/fuzzylabs/awesome-secure-mcp-servers
+#
+# 仅允许本文件声明的 command/args；勿将用户输入拼入进程参数。
+# {src_root} 在加载时替换为仓库 src 绝对路径（供 PYTHONPATH）。
+enabled: false
+servers:
+  - id: pompeii-demo
+    command: python
+    args: ["-m", "infra.mcp_demo_server"]
+    env:
+      PYTHONPATH: "{src_root}"
+    timeout_seconds: 45

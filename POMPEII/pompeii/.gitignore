@@ -1,0 +1,7 @@
+# 本地密钥（勿提交）
+env.ps1
+config/env.ps1
+.env
+
+# SQLite 会话库（本地数据）
+src/platform_layer/resources/data/*.db

@@ -1,4 +1,3 @@
-# Load repo-root env.ps1 if present (ASCII-only output; do not commit env.ps1).
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $EnvScript = Join-Path $RepoRoot "env.ps1"
 if (Test-Path $EnvScript) {

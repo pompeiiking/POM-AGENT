@@ -4,7 +4,8 @@
 #
 # 仅允许本文件声明的 command/args；勿将用户输入拼入进程参数。
 # {src_root} 在加载时替换为仓库 src 绝对路径（供 PYTHONPATH）。
-enabled: false
+# 设为 false 可关闭子进程 MCP（生产环境若不需要 ping/add 演示可关闭）。
+enabled: true
 servers:
   - id: pompeii-demo
     command: python

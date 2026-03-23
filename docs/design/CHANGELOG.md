@@ -1,5 +1,13 @@
 ## CHANGELOG
 
+### Release 0.4.7（2026-03-23）
+
+**版本号**：`0.4.7`。
+
+- **MCP**：`mcp_servers.yaml` 默认 **`enabled: true`**，便于本地验证 `/tool ping`、`/tool add`；不需要时改为 `false` 并重启。
+
+---
+
 ### Release 0.4.6（2026-03-23）
 
 **版本号**：`0.4.6`。

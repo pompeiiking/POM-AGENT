@@ -1,6 +1,6 @@
 # Pompeii-Agent
 
-**当前版本**：`0.4.6`（见 `src/app/version.py`；HTTP `GET /health` 返回 `version` 字段）
+**当前版本**：`0.4.7`（见 `src/app/version.py`；HTTP `GET /health` 返回 `version` 字段）
 
 Pompeii-Agent 是一个面向长期演进的 **微内核 Agent 基础设施**项目：用清晰分层与严格依赖方向，把「运行时入口 / 端口边界 / 内核编排 / 模块处理 / 平台能力」解耦，便于后续扩展 HTTP/WS、真实模型、MCP、长期存储与安全策略。
 
@@ -110,7 +110,7 @@ src/
 
 文件：`src/platform_layer/resources/config/mcp_servers.yaml`
 
-- 默认 **`enabled: false`**。设为 **`true`** 并重启后，`composition` 会注入 MCP 桥接（需已 `pip install` 本仓库 `requirements.txt` 中的 `mcp`）。
+- 默认 **`enabled: true`**（便于本地 `/tool ping`、`/tool add` 演示）；不需要 MCP 时在 YAML 中改为 **`false`** 并重启。需已 `pip install` 本仓库 `requirements.txt` 中的 `mcp`。
 - 仅允许在该 YAML 中声明 **`command` / `args` / `env`**，勿将用户输入拼入进程参数；生产选型请优先 [MCP Registry](https://modelcontextprotocol.io/registry) 与已审计清单。
 - 仓库自带演示：`infra/mcp_demo_server.py`（工具名 `ping`、`add`），需在 `kernel_config.yaml` 的 `tool_allowlist` 中放行（默认已包含演示名）。
 

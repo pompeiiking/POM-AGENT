@@ -1,10 +1,18 @@
 ## CHANGELOG
 
+### Release 0.4.5（2026-03-23）
+
+**版本号**：`0.4.5`。
+
+- **仓库布局**：去掉 **`POMPEII/`** 中间层，将原 **`POMPEII/pompeii`** 下全部内容提升至 **Git 仓库根目录**（`src/`、`docs/`、`config/`、`scripts/` 等与 README 同级）；文档与脚本中的 `cd` 路径已同步更新。
+
+---
+
 ### Release 0.4.4（2026-03-23）
 
 **版本号**：`0.4.4`。
 
-- **仓库布局**：删除仓库根目录重复的 **`设计/Pompeii/`**；其中与 `docs/design/架构设计ver0.4.md` 重复的 **`架构设计ver0.4.md`** 已移除；历史草案 **`架构设计ver0.2` / `ver0.3`** 迁入 **`docs/design/archive/`** 并补 `.md` 后缀；根目录随笔 **`架构设计ver0.1`** 重命名并迁入 **`docs/design/archive/早期随笔-市场与Agent技术观察.md`**（内容非架构规格，仅作备忘）。根目录 **`README.md`** 改为指向 **`POMPEII/pompeii`** 的导航说明。
+- **仓库布局**：删除仓库根目录重复的 **`设计/Pompeii/`**；其中与 `docs/design/架构设计ver0.4.md` 重复的 **`架构设计ver0.4.md`** 已移除；历史草案 **`架构设计ver0.2` / `ver0.3`** 迁入 **`docs/design/archive/`** 并补 `.md` 后缀；根目录随笔 **`架构设计ver0.1`** 重命名并迁入 **`docs/design/archive/早期随笔-市场与Agent技术观察.md`**（内容非架构规格，仅作备忘）。根目录 **`README.md`** 曾临时指向子路径 **`POMPEII/pompeii`** 的导航说明（**0.4.5** 起已取消该子路径）。
 
 ---
 

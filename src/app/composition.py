@@ -46,7 +46,7 @@ def build_core(
 
 
 def build_port(mode: InteractionMode, request_factory: RequestFactory, emitter: PortEmitter) -> GenericAgentPort:
-    base = Path(__file__).resolve().parents[1]  # .../pompeii/src
+    base = Path(__file__).resolve().parents[1]  # .../<repo>/src
     config_path = base / "platform_layer" / "resources" / "config" / "session_defaults.yaml"
     model_registry = _load_model_registry(base)
     core = build_core(
@@ -58,7 +58,7 @@ def build_port(mode: InteractionMode, request_factory: RequestFactory, emitter: 
 
 
 def _load_kernel_config() -> KernelConfig:
-    base = Path(__file__).resolve().parents[1]  # .../pompeii/src
+    base = Path(__file__).resolve().parents[1]  # .../<repo>/src
     config_path = base / "platform_layer" / "resources" / "config" / "kernel_config.yaml"
     return load_kernel_config(KernelConfigSource(path=config_path))
 

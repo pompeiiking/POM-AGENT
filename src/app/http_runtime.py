@@ -33,7 +33,7 @@ app = FastAPI(title=f"Pompeii-Agent (experimental http) v{__version__}")
 # ============================================================
 # 预先装配一次 Core（会话存储为 SQLite，路径见 runtime.yaml）
 # ============================================================
-_BASE = Path(__file__).resolve().parents[1]  # .../pompeii/src
+_BASE = Path(__file__).resolve().parents[1]  # .../<repo>/src
 _SESSION_CONFIG_PATH = _BASE / "platform_layer" / "resources" / "config" / "session_defaults.yaml"
 _MODEL_REGISTRY = load_model_registry(ModelProviderSource(path=_BASE / "platform_layer" / "resources" / "config" / "model_providers.yaml"))
 _CORE = build_core(

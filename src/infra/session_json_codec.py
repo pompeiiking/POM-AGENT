@@ -44,6 +44,8 @@ def _config_to_dict(c: SessionConfig) -> dict[str, Any]:
         "model": c.model,
         "skills": list(c.skills),
         "security": c.security,
+        "prompt_profile": c.prompt_profile,
+        "prompt_strategy": c.prompt_strategy,
         "limits": {
             "max_tokens": c.limits.max_tokens,
             "max_context_window": c.limits.max_context_window,
@@ -64,6 +66,8 @@ def _config_from_dict(d: dict[str, Any]) -> SessionConfig:
         model=str(d["model"]),
         skills=list(d["skills"]),
         security=d["security"],
+        prompt_profile=str(d.get("prompt_profile", "default")),
+        prompt_strategy=str(d.get("prompt_strategy", "default")),
         limits=SessionLimits(
             max_tokens=int(lim["max_tokens"]),
             max_context_window=int(lim["max_context_window"]),

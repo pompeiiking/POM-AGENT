@@ -50,6 +50,10 @@ class SessionConfig:
     skills: list[str]
     security: str | dict[str, Any]
     limits: SessionLimits
+    # 提示词配置档位（由 model provider 的 prompt_profiles 解析）；默认 default
+    prompt_profile: str = "default"
+    # 提示词策略（如 default/concise/tool_first）；默认 default
+    prompt_strategy: str = "default"
 
 @dataclass
 class SessionStats:

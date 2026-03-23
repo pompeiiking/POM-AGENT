@@ -13,6 +13,30 @@
 # 可选（OpenAI 兼容原生工具）：
 #   params.tools: [ { "type": "function", "function": { "name": "...", "description": "...", "parameters": {...} } }, ... ]
 #   params.tool_choice: "auto" | "none" | { "type": "function", "function": { "name": "..." } }
+# 可选（提示词分层）：
+#   params.prompt_profiles:
+#     default:
+#       default: |
+#         ...
+#       concise: |
+#         ...
+#     strict:
+#       default: |
+#         ...
+#       tool_first: |
+#         ...
+# 可选（提示词变量注入）：
+#   params.prompt_vars: { key: value }                # 静态变量
+#   params.prompt_vars_env: { key: ENV_NAME }         # 从环境变量注入
+#   params.prompt_vars_strict: false                  # 严格模式下缺失变量触发渲染失败并回退原模板
+# 内建变量：{provider_id} {model_id} {prompt_profile} {prompt_strategy}
+#         {channel} {user_id} {today} {now_utc} {current_message}
+# 可选（用户提示词模板）：
+#   params.user_prompt_profiles:
+#     default:
+#       default: "<user_request>{user_input}</user_request>"
+#   params.user_prompt_vars / user_prompt_vars_env / user_prompt_vars_strict
+#   params.user_input_max_chars: 4000   # 用户输入注入模板前的字符上限（0=不限制）
 # 响应中的 message.tool_calls 会被解析为 ModelOutput(kind=tool_call)。
 
 default_provider: deepseek
@@ -30,6 +54,55 @@ providers:
       api_key_env: "DEEPSEEK_API_KEY"
       max_history: 10
       timeout: 30.0
+      prompt_vars:
+        project_name: "Pompeii-Agent"
+      prompt_vars_env:
+        tenant_policy: "POMPEII_TENANT_POLICY"
+      user_prompt_profiles:
+        default:
+          default: |
+            <user_request>
+            {user_input}
+            </user_request>
+      user_input_max_chars: 4000
+      # 工具结果直出格式（用于 tool_first 回流轮次）
+      # 可选：raw | short | short_with_reason
+      # 支持字符串简写，或按 strategy 细分：
+      # tool_result_render:
+      #   default: short
+      #   tool_first: short_with_reason
+      # 工具结果直出触发范围（可选）
+      # - 缺省：所有工具
+      # - list：白名单
+      # - mapping：按 strategy 配置白名单
+      # tool_first_tools:
+      #   default: ["ping", "add"]
+      #   strict: ["ping", "add", "echo"]
+      tool_first_tools:
+        default: ["ping", "add"]
+      tool_result_render:
+        default: short
+        tool_first: short
+      prompt_profiles:
+        default:
+          default: |
+            你是 Pompeii-Agent 的模型执行层。
+            目标：在不违背安全约束的前提下，给出直接、可执行、少废话的回答。
+            规则：
+            1) 优先基于已给上下文回答，不编造未提供的事实。
+            2) 对工具执行结果，先给出结论，再简要解释；不要重复原始 JSON。
+            3) 当用户输入是 /tool 指令时，优先配合工具工作流，不改写为闲聊。
+          concise: |
+            你是 {project_name}（简洁策略：{prompt_strategy}）。
+            用最少文字给出可执行结论；必要时只给结论与下一步。
+        strict:
+          default: |
+            你是 Pompeii-Agent（strict 模式）。
+            只输出与任务直接相关的信息；避免寒暄与无关延展。
+            若证据不足，明确说明“信息不足”，并给出最小下一步建议。
+          tool_first: |
+            你是 Pompeii-Agent（strict + tool_first）。
+            当输入为 /tool 指令时，优先输出工具结果要点，再补一句解释；禁止扩展为闲聊。
 
   openai:
     backend: openai_compatible
@@ -39,3 +112,21 @@ providers:
       api_key_env: "OPENAI_API_KEY"
       max_history: 10
       timeout: 60.0
+      user_prompt_profiles:
+        default:
+          default: |
+            <user_request>
+            {user_input}
+            </user_request>
+      user_input_max_chars: 4000
+      tool_first_tools:
+        default: ["ping", "add"]
+      tool_result_render:
+        default: short
+        tool_first: short
+      prompt_profiles:
+        default:
+          default: |
+            You are the model execution layer of Pompeii-Agent.
+            Be concise, accurate, and action-oriented.
+            Prefer clear conclusions over long explanations.

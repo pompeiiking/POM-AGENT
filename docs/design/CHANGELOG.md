@@ -1,5 +1,78 @@
 ## CHANGELOG
 
+### Release 0.4.16（2026-03-23）
+
+**版本号**：`0.4.16`。
+
+- **提示词配置校验（加载期）**：`load_model_registry` 新增对提示词相关参数的结构校验（`prompt_profiles`、`user_prompt_profiles`、`prompt_vars_env`、`user_prompt_vars_env`、`tool_result_render`、`tool_first_tools`、`user_input_max_chars`）。错误配置在启动加载阶段直接报错，避免运行时隐性失效。
+
+---
+
+### Release 0.4.15（2026-03-23）
+
+**版本号**：`0.4.15`。
+
+- **提示词架构（用户输入稳定化）**：用户输入在注入 `user_prompt_profiles` 前新增标准化流程（统一换行、去除 NUL 字符），并支持 `params.user_input_max_chars` 限长裁剪（`0` 表示不限制），提升长输入与异常字符场景的稳定性。
+
+---
+
+### Release 0.4.14（2026-03-23）
+
+**版本号**：`0.4.14`。
+
+- **提示词架构（用户提示词模板）**：新增 `params.user_prompt_profiles`，支持将用户输入以模板方式注入为结构化 `user` 消息（例如 `<user_request>{user_input}</user_request>`）；并支持 `user_prompt_vars` / `user_prompt_vars_env` 变量注入。未配置时保持兼容，默认继续使用原始用户输入。
+
+---
+
+### Release 0.4.13（2026-03-23）
+
+**版本号**：`0.4.13`。
+
+- **提示词架构（变量注入）**：在 `prompt_profiles` 资源模板基础上新增变量渲染层。支持 `params.prompt_vars`（静态变量）与 `params.prompt_vars_env`（环境变量注入）统一管理模板参数；并提供内建运行时变量（如 `prompt_strategy`、`channel`、`today`）。
+
+---
+
+### Release 0.4.12（2026-03-23）
+
+**版本号**：`0.4.12`。
+
+- **提示词架构（tool_first 触发条件配置化）**：新增 `params.tool_first_tools`，支持白名单控制 `tool_first` 直出仅对指定工具生效；支持两种写法：`list[str]`（全局白名单）与 `mapping[strategy -> list[str]]`（按 strategy 细分）。未配置时保持兼容，默认允许所有工具。
+
+---
+
+### Release 0.4.11（2026-03-23）
+
+**版本号**：`0.4.11`。
+
+- **提示词架构（工具结果渲染）**：新增 `params.tool_result_render`（`raw` / `short` / `short_with_reason`，支持按 strategy 配置）。在 `tool_first` 回流轮次下，工具结果直出格式可配置，不再固定单一渲染。
+
+---
+
+### Release 0.4.10（2026-03-23）
+
+**版本号**：`0.4.10`。
+
+- **提示词架构（tool_first 执行化）**：当 `session.prompt_strategy=tool_first` 且进入“工具结果回流轮次”时，模型层优先直出工具结论（如 `ping -> pong`、`add -> 5`），避免再次生成冗长解释文本。该行为仅在工具回流上下文触发，不影响普通对话策略。
+
+---
+
+### Release 0.4.9（2026-03-23）
+
+**版本号**：`0.4.9`。
+
+- **提示词架构（二层策略）**：新增会话级 `session.prompt_strategy`；`prompt_profiles` 支持 `profile -> strategy` 嵌套结构。模型层解析优先级升级为：`profile+strategy -> profile.default -> default+strategy -> default.default -> legacy string profile -> system_prompt`，兼容旧配置并支持更细粒度提示词策略切换（如 `concise`、`tool_first`）。
+
+---
+
+### Release 0.4.8（2026-03-23）
+
+**版本号**：`0.4.8`。
+
+- **提示词架构（配置化）**：会话配置新增 `session.prompt_profile`；模型配置支持 `providers.<id>.params.prompt_profiles`，模型层按“会话档位 -> default 档位 -> legacy system_prompt”优先级解析 system prompt，实现多 provider 通用提示词档位切换。
+- **默认模板**：`model_providers.yaml` 为 `deepseek/openai` 增加 `prompt_profiles` 示例（`default`、`strict`），便于后续提示词工程与 A/B 调整。
+
+---
+
 ### Release 0.4.7（2026-03-23）
 
 **版本号**：`0.4.7`。

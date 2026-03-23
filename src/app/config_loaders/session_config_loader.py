@@ -49,6 +49,8 @@ def load_session_config(source: SessionConfigSource) -> SessionConfig:
         skills=_require_str_list(session_node, "skills"),
         security=_require_non_empty_str(session_node, "security"),
         limits=limits,
+        prompt_profile=_optional_non_empty_str(session_node, "prompt_profile", default="default"),
+        prompt_strategy=_optional_non_empty_str(session_node, "prompt_strategy", default="default"),
     )
 
 
@@ -164,4 +166,13 @@ def _optional_nonneg_int(parent: Mapping[str, Any], key: str, *, default: int) -
     if not isinstance(value, int) or value < 0:
         raise SessionConfigLoaderError(f"field must be a non-negative int: {key}")
     return value
+
+
+def _optional_non_empty_str(parent: Mapping[str, Any], key: str, *, default: str) -> str:
+    if key not in parent:
+        return default
+    value = parent.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise SessionConfigLoaderError(f"field must be a non-empty string: {key}")
+    return value.strip()
 

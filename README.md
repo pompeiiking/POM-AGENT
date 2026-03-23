@@ -1,6 +1,6 @@
-# Pompeii-Agent
+﻿# Pompeii-Agent
 
-**当前版本**：`0.4.7`（见 `src/app/version.py`；HTTP `GET /health` 返回 `version` 字段）
+**当前版本**：`0.4.16`（见 `src/app/version.py`；HTTP `GET /health` 返回 `version` 字段）
 
 Pompeii-Agent 是一个面向长期演进的 **微内核 Agent 基础设施**项目：用清晰分层与严格依赖方向，把「运行时入口 / 端口边界 / 内核编排 / 模块处理 / 平台能力」解耦，便于后续扩展 HTTP/WS、真实模型、MCP、长期存储与安全策略。
 
@@ -105,6 +105,8 @@ src/
 文件：`src/platform_layer/resources/config/session_defaults.yaml`
 
 由 `ConfigProvider(user_id, channel)` 读取并注入到 core，用于创建/管理 session。
+- `session.prompt_profile`：提示词档位（默认 `default`），用于选择 `model_providers.yaml` 中 `params.prompt_profiles` 的模板。
+- `session.prompt_strategy`：提示词策略（默认 `default`），用于在 `prompt_profile` 下选择子策略模板（如 `concise`、`tool_first`）。
 
 ### MCP（可选，stdio）
 
@@ -122,6 +124,13 @@ src/
 - **`providers.<id>`**：每个 **id** 即工程内可引用的提供方名称；`session_defaults.yaml` 里的 **`session.model`** 填这里的 id，即可切换不同 API/模型。
 - **`backend`**：`stub`（占位）或 `openai_compatible`（以及兼容的 `deepseek` 别名），统一走 OpenAI Chat Completions 协议。
 - **`params.api_key_env`**：声明该 provider 使用的 **环境变量名**（不要在文件里写 Key）；未设置 `api_key_env` 的 legacy `deepseek` backend 仍默认读 `DEEPSEEK_API_KEY`。
+- **`params.prompt_profiles`**：按 `profile -> strategy` 配置 system prompt 模板；由会话级 `session.prompt_profile` + `session.prompt_strategy` 选择（并兼容旧字符串格式）。
+- **`params.prompt_vars` / `params.prompt_vars_env`**：对 `prompt_profiles` 模板进行变量注入（静态值 + 环境变量），实现统一参数化管理。
+- **`params.user_prompt_profiles`**：按 `profile -> strategy` 配置 user prompt 包装模板，用于将 `{user_input}` 以结构化形式注入到 `user` 消息。
+- **`params.user_input_max_chars`**：用户输入注入模板前的字符上限（`0` 为不限制），用于长输入稳定化。
+- **`params.tool_result_render`**：工具结果回流轮次的直出格式（`raw` / `short` / `short_with_reason`），可按 strategy 配置。
+- **`params.tool_first_tools`**：`tool_first` 策略触发白名单（可按 strategy 配置）；未配置时默认所有工具均可触发。
+- **加载期校验**：`model_providers.yaml` 中上述提示词字段在启动时做结构校验；配置错误会直接抛出加载异常，避免运行期静默失败。
 - 由 `load_model_registry` 加载，在 `composition.build_core` / `http_runtime` 中注入 `ModelModuleImpl`。
 
 本地环境变量（勿提交到 Git）：
@@ -163,4 +172,10 @@ pytest
 - 所有规则在：`docs/design/ai-rules-template/RULES.md`
 - 占位实现必须按 STUB 规范标注：`// STUB(YYYY-MM-DD): 原因 — 替换计划`
 - 每次变更必须追加记录到：`docs/design/CHANGELOG.md`（无记录视为未发生）
+
+
+
+
+
+
 

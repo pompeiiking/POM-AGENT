@@ -13,7 +13,14 @@ def test_session_limits_roundtrip_includes_assembly_message_max_chars() -> None:
         assembly_message_max_chars=9999,
         assembly_approx_context_tokens=5000,
     )
-    cfg = SessionConfig(model="m", skills=[], security="none", limits=lim)
+    cfg = SessionConfig(
+        model="m",
+        skills=[],
+        security="none",
+        limits=lim,
+        prompt_profile="strict",
+        prompt_strategy="tool_first",
+    )
     s = Session(
         session_id="a",
         user_id="u",
@@ -29,3 +36,5 @@ def test_session_limits_roundtrip_includes_assembly_message_max_chars() -> None:
     s2 = session_from_json_dict(d)
     assert s2.config.limits.assembly_message_max_chars == 9999
     assert s2.config.limits.assembly_approx_context_tokens == 5000
+    assert s2.config.prompt_profile == "strict"
+    assert s2.config.prompt_strategy == "tool_first"

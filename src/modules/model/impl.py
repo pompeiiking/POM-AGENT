@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
 import uuid
-from typing import Any, Literal
+from datetime import datetime, timezone
+from typing import Any, Mapping, Literal
 
 import httpx
 
@@ -91,8 +93,10 @@ class ModelModuleImpl(ModelModule):
         - 按解析到的 provider 的 backend 调用对应实现。
         """
         message_text = override_text or context.current
-
         provider = self._resolve_provider(session)
+        tool_first_reply = _maybe_make_tool_first_reply(session=session, context=context, provider=provider)
+        if tool_first_reply is not None:
+            return ModelOutput(kind="text", content=tool_first_reply)
         if provider is None:
             return _make_text(message_text)
 
@@ -208,10 +212,16 @@ def _run_openai_compatible_chat(provider: ModelProvider, session: Session, conte
     history_messages = _render_history_messages_for_model(context, max_history=max_history)
     # Core 在调用模型前已将本轮 user 写入 session，context.messages 末尾已含本条；
     # 若再追加会与 OpenAI 兼容 API 中「当前问」重复，损害多轮与单轮质量。
+    user_message_for_model = _resolve_user_message_for_model(
+        provider=provider,
+        session=session,
+        context=context,
+        user_input=message,
+    )
     history_messages = _drop_trailing_user_if_matches_current(history_messages, message)
-    history_messages.append({"role": "user", "content": message})
+    history_messages.append({"role": "user", "content": user_message_for_model})
 
-    system_prompt = provider.params.get("system_prompt")
+    system_prompt = _resolve_system_prompt(provider=provider, session=session, context=context)
 
     messages_payload: list[dict[str, str]] = []
     if isinstance(system_prompt, str) and system_prompt.strip():
@@ -292,5 +302,381 @@ def _render_history_messages_for_model(context: Context, *, max_history: int) ->
                     "content": text,
                 }
             )
-    return history
+    return _sanitize_openai_history_messages(history)
+
+
+def _sanitize_openai_history_messages(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    防止裁剪后出现“孤儿 tool 消息”导致 OpenAI 兼容接口 400：
+    - 保留普通 user/assistant/system
+    - 对 role=tool：仅当其 tool_call_id 在已出现的 assistant.tool_calls.id 集合中时保留
+    """
+    seen_tool_call_ids: set[str] = set()
+    sanitized: list[dict[str, Any]] = []
+    for msg in history:
+        role = str(msg.get("role", "")).strip()
+        if role == "assistant":
+            raw_calls = msg.get("tool_calls")
+            if isinstance(raw_calls, list):
+                for tc in raw_calls:
+                    if not isinstance(tc, Mapping):
+                        continue
+                    tc_id = tc.get("id")
+                    if isinstance(tc_id, str) and tc_id.strip():
+                        seen_tool_call_ids.add(tc_id.strip())
+            sanitized.append(msg)
+            continue
+        if role == "tool":
+            tc_id = msg.get("tool_call_id")
+            if not isinstance(tc_id, str) or not tc_id.strip():
+                continue
+            if tc_id.strip() in seen_tool_call_ids:
+                sanitized.append(msg)
+            continue
+        sanitized.append(msg)
+    return sanitized
+
+
+def _resolve_system_prompt(*, provider: ModelProvider, session: Session, context: Context) -> str | None:
+    """
+    提示词优先级：
+    1) prompt_profiles[profile][strategy]
+    2) prompt_profiles[profile]["default"]
+    3) prompt_profiles["default"][strategy]
+    4) prompt_profiles["default"]["default"]
+    5) legacy prompt_profiles["..."] = "text"（兼容旧格式）
+    6) provider.params.system_prompt（兼容旧配置）
+    """
+    selected_profile = (session.config.prompt_profile or "default").strip() or "default"
+    selected_strategy = (session.config.prompt_strategy or "default").strip() or "default"
+    profile_text = _resolve_prompt_profile_text(provider.params, selected_profile, selected_strategy)
+    if profile_text is not None:
+        return _render_prompt_template(
+            template=profile_text,
+            provider=provider,
+            session=session,
+            context=context,
+            selected_profile=selected_profile,
+            selected_strategy=selected_strategy,
+        )
+    raw = provider.params.get("system_prompt")
+    if isinstance(raw, str) and raw.strip():
+        return _render_prompt_template(
+            template=raw.strip(),
+            provider=provider,
+            session=session,
+            context=context,
+            selected_profile=selected_profile,
+            selected_strategy=selected_strategy,
+        )
+    return None
+
+
+def _resolve_prompt_profile_text(params: Mapping[str, Any], profile: str, strategy: str = "default") -> str | None:
+    return _resolve_profile_text(params=params, root_key="prompt_profiles", profile=profile, strategy=strategy)
+
+
+def _resolve_profile_text(
+    *,
+    params: Mapping[str, Any],
+    root_key: str,
+    profile: str,
+    strategy: str = "default",
+) -> str | None:
+    node = params.get(root_key)
+    if not isinstance(node, Mapping):
+        return None
+
+    def _as_text(value: Any) -> str | None:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return None
+
+    def _from_profile(value: Any, wanted_strategy: str) -> str | None:
+        # 兼容旧格式：prompt_profiles.<profile> = "..."
+        text = _as_text(value)
+        if text is not None:
+            return text
+        if isinstance(value, Mapping):
+            # 新格式：prompt_profiles.<profile>.<strategy> = "..."
+            selected = _as_text(value.get(wanted_strategy))
+            if selected is not None:
+                return selected
+            return _as_text(value.get("default"))
+        return None
+
+    resolved = _from_profile(node.get(profile), strategy)
+    if resolved is not None:
+        return resolved
+    resolved = _from_profile(node.get("default"), strategy)
+    if resolved is not None:
+        return resolved
+    return None
+
+
+def _render_prompt_template(
+    *,
+    template: str,
+    provider: ModelProvider,
+    session: Session,
+    context: Context,
+    selected_profile: str,
+    selected_strategy: str,
+) -> str:
+    return _render_prompt_template_generic(
+        template=template,
+        provider=provider,
+        session=session,
+        context=context,
+        selected_profile=selected_profile,
+        selected_strategy=selected_strategy,
+        vars_key="prompt_vars",
+        vars_env_key="prompt_vars_env",
+        vars_strict_key="prompt_vars_strict",
+    )
+
+
+def _render_prompt_template_generic(
+    *,
+    template: str,
+    provider: ModelProvider,
+    session: Session,
+    context: Context,
+    selected_profile: str,
+    selected_strategy: str,
+    vars_key: str,
+    vars_env_key: str,
+    vars_strict_key: str,
+    extra_vars: Mapping[str, Any] | None = None,
+) -> str:
+    """
+    将资源模板渲染为最终 system prompt。
+    变量来源（后者覆盖前者）：
+    1) provider.params.prompt_vars（静态配置）
+    2) provider.params.prompt_vars_env（从环境变量注入）
+    3) 内建运行时变量
+    """
+    vars_map: dict[str, Any] = {}
+    configured = provider.params.get(vars_key)
+    if isinstance(configured, Mapping):
+        for k, v in configured.items():
+            if isinstance(k, str) and k.strip():
+                vars_map[k.strip()] = v
+
+    env_map = provider.params.get(vars_env_key)
+    if isinstance(env_map, Mapping):
+        for var_name, env_name in env_map.items():
+            if not isinstance(var_name, str) or not var_name.strip():
+                continue
+            if not isinstance(env_name, str) or not env_name.strip():
+                continue
+            env_value = os.environ.get(env_name.strip())
+            if env_value is not None:
+                vars_map[var_name.strip()] = env_value
+
+    now = datetime.now(timezone.utc)
+    vars_map.update(
+        {
+            "provider_id": provider.id,
+            "model_id": session.config.model,
+            "prompt_profile": selected_profile,
+            "prompt_strategy": selected_strategy,
+            "channel": session.channel,
+            "user_id": session.user_id,
+            "today": now.strftime("%Y-%m-%d"),
+            "now_utc": now.isoformat(timespec="seconds"),
+            "current_message": context.current,
+        }
+    )
+    if isinstance(extra_vars, Mapping):
+        vars_map.update(extra_vars)
+
+    strict = bool(provider.params.get(vars_strict_key, False))
+    try:
+        rendered = template.format_map(_PromptSafeDict(vars_map, strict=strict))
+    except Exception:
+        return template
+    return rendered.strip() if rendered.strip() else template
+
+
+def _resolve_user_message_for_model(
+    *,
+    provider: ModelProvider,
+    session: Session,
+    context: Context,
+    user_input: str,
+) -> str:
+    """
+    用户提示词模板（可选）：
+    - params.user_prompt_profiles: profile -> strategy -> template
+    - params.user_prompt_vars / user_prompt_vars_env / user_prompt_vars_strict
+    未配置时保留原始用户输入，保证兼容。
+    """
+    selected_profile = (session.config.prompt_profile or "default").strip() or "default"
+    selected_strategy = (session.config.prompt_strategy or "default").strip() or "default"
+    normalized_input = _normalize_user_input_for_template(user_input=user_input, provider=provider)
+    template = _resolve_profile_text(
+        params=provider.params,
+        root_key="user_prompt_profiles",
+        profile=selected_profile,
+        strategy=selected_strategy,
+    )
+    if template is None:
+        return normalized_input
+    return _render_prompt_template_generic(
+        template=template,
+        provider=provider,
+        session=session,
+        context=context,
+        selected_profile=selected_profile,
+        selected_strategy=selected_strategy,
+        vars_key="user_prompt_vars",
+        vars_env_key="user_prompt_vars_env",
+        vars_strict_key="user_prompt_vars_strict",
+        extra_vars={"user_input": normalized_input, "user_input_raw": user_input},
+    )
+
+
+def _normalize_user_input_for_template(*, user_input: str, provider: ModelProvider) -> str:
+    """
+    用户输入稳定化：
+    1) 统一换行与去除 NUL 字符
+    2) 可选字符上限（params.user_input_max_chars）
+    """
+    text = str(user_input).replace("\r\n", "\n").replace("\r", "\n").replace("\x00", "")
+    raw_limit = provider.params.get("user_input_max_chars", 0)
+    limit = int(raw_limit) if isinstance(raw_limit, (int, float, str)) and str(raw_limit).strip().isdigit() else 0
+    if limit <= 0 or len(text) <= limit:
+        return text
+    suffix = " ...(truncated)"
+    if limit <= len(suffix):
+        return text[:limit]
+    return text[: max(0, limit - len(suffix))] + suffix
+
+
+class _PromptSafeDict(dict[str, Any]):
+    def __init__(self, data: Mapping[str, Any], *, strict: bool) -> None:
+        super().__init__(data)
+        self._strict = strict
+
+    def __missing__(self, key: str) -> Any:
+        if self._strict:
+            raise KeyError(key)
+        return "{" + key + "}"
+
+
+def _maybe_make_tool_first_reply(*, session: Session, context: Context, provider: ModelProvider | None) -> str | None:
+    """
+    tool_first 策略下，工具结果回流轮次优先直出工具结论，避免模型二次长解释。
+    触发条件：prompt_strategy=tool_first 且 context.intent is None 且 current 形如 "tool <name> -> <payload>"。
+    """
+    if (session.config.prompt_strategy or "").strip() != "tool_first":
+        return None
+    if context.intent is not None:
+        return None
+    prefix = "tool "
+    marker = " -> "
+    current = context.current
+    if not current.startswith(prefix) or marker not in current:
+        return None
+    head, payload_raw = current[len(prefix) :].split(marker, 1)
+    tool_name = head.strip()
+    payload_raw = payload_raw.strip()
+    if not tool_name or not payload_raw:
+        return None
+    if not _is_tool_first_allowed(tool_name=tool_name, provider=provider, strategy=session.config.prompt_strategy):
+        return None
+    mode = _resolve_tool_result_render_mode(provider=provider, strategy=session.config.prompt_strategy)
+    try:
+        payload = json.loads(payload_raw)
+    except Exception:
+        payload = payload_raw
+    if mode == "raw":
+        return payload_raw
+    result = _extract_tool_result(payload)
+    rendered = _render_tool_result_short(tool_name=tool_name, result=result)
+    if mode == "short_with_reason":
+        return f"{rendered}\n(source: {tool_name})"
+    return rendered
+
+
+def _render_tool_result_short(*, tool_name: str, result: Any) -> str:
+    if isinstance(result, (str, int, float, bool)):
+        return str(result)
+    if result is None:
+        return f"{tool_name} done"
+    try:
+        return json.dumps(result, ensure_ascii=False, separators=(",", ":"), default=str)
+    except TypeError:
+        return str(result)
+
+
+def _resolve_tool_result_render_mode(
+    *,
+    provider: ModelProvider | None,
+    strategy: str,
+) -> Literal["raw", "short", "short_with_reason"]:
+    default_mode: Literal["raw", "short", "short_with_reason"] = "short"
+    if provider is None:
+        return default_mode
+    node = provider.params.get("tool_result_render")
+    # 兼容旧/简写格式：tool_result_render: "short"
+    if isinstance(node, str):
+        return _normalize_tool_result_mode(node, default=default_mode)
+    # 新格式：tool_result_render: { default: "...", tool_first: "..." }
+    if isinstance(node, Mapping):
+        chosen = node.get(strategy, node.get("default", default_mode))
+        return _normalize_tool_result_mode(chosen, default=default_mode)
+    return default_mode
+
+
+def _is_tool_first_allowed(*, tool_name: str, provider: ModelProvider | None, strategy: str) -> bool:
+    """
+    控制 tool_first 触发范围。
+    配置项：params.tool_first_tools
+    - 缺省：允许所有工具
+    - list[str]：白名单
+    - mapping：按 strategy 取 list[str]（含 default 回退）
+    """
+    if provider is None:
+        return True
+    node = provider.params.get("tool_first_tools")
+    if node is None:
+        return True
+
+    def _contains(value: Any, name: str) -> bool:
+        if not isinstance(value, list):
+            return True
+        names = [str(x).strip() for x in value if isinstance(x, str) and str(x).strip()]
+        return name in names
+
+    if isinstance(node, list):
+        return _contains(node, tool_name)
+    if isinstance(node, Mapping):
+        selected = node.get(strategy, node.get("default"))
+        return _contains(selected, tool_name)
+    return True
+
+
+def _normalize_tool_result_mode(value: Any, *, default: Literal["raw", "short", "short_with_reason"]) -> Literal["raw", "short", "short_with_reason"]:
+    if not isinstance(value, str):
+        return default
+    v = value.strip().lower()
+    if v in ("raw", "short", "short_with_reason"):
+        return v  # type: ignore[return-value]
+    return default
+
+
+def _extract_tool_result(payload: Any) -> Any:
+    if isinstance(payload, dict):
+        structured = payload.get("structuredContent")
+        if isinstance(structured, dict) and "result" in structured:
+            return structured.get("result")
+        if "result" in payload:
+            return payload.get("result")
+        if "value" in payload:
+            return payload.get("value")
+        if "output" in payload:
+            return payload.get("output")
+    return payload
 

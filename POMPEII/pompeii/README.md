@@ -1,6 +1,6 @@
 # Pompeii-Agent
 
-**当前版本**：`0.4.3`（见 `src/app/version.py`；HTTP `GET /health` 返回 `version` 字段）
+**当前版本**：`0.4.4`（见 `src/app/version.py`；HTTP `GET /health` 返回 `version` 字段）
 
 Pompeii-Agent 是一个面向长期演进的 **微内核 Agent 基础设施**项目：用清晰分层与严格依赖方向，把「运行时入口 / 端口边界 / 内核编排 / 模块处理 / 平台能力」解耦，便于后续扩展 HTTP/WS、真实模型、MCP、长期存储与安全策略。
 

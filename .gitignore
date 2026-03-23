@@ -13,7 +13,6 @@ venv/
 # Local secrets
 .env
 env.ps1
-**/config/env.ps1
 
 # SQLite session DB (local data)
 src/platform_layer/resources/data/*.db

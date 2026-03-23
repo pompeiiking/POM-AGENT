@@ -1,6 +1,6 @@
 ## Pompeii-Agent 当前状态（快照）
 
-**发布线**：`0.4.5`（见 `src/app/version.py`）
+**发布线**：`0.4.6`（见 `src/app/version.py`）
 
 ### 概览
 - **目标**：以 Python 为起点，构建可长期演进的微内核 Agent 基础设施。
@@ -16,7 +16,7 @@
 - 明确**不**作为近期主线：为对接方单独扩面、堆集成代码而绕过或分叉 core 契约。
 
 ### 已完成（里程碑）
-- **`/summary` 规则摘要**：基于最近 `Context.messages` 列表化输出（不调用 LLM）；条数与单条摘录长度可在 `session_defaults.yaml` → `limits.summary_*` 配置；`GET /health` 返回 `version`（`0.4.5`）；`GET /archives` 列出用户归档摘要（SQLite）；可选 **MCP stdio**；OpenAI **`tool_calls` 解析** + **会话内 assistant/tool 与 call_id 对齐**
+- **`/summary` 规则摘要**：基于最近 `Context.messages` 列表化输出（不调用 LLM）；条数与单条摘录长度可在 `session_defaults.yaml` → `limits.summary_*` 配置；`GET /health` 返回 `version`（`0.4.6`）；`GET /archives` 列出用户归档摘要（SQLite）；可选 **MCP stdio**；OpenAI **`tool_calls` 解析** + **会话内 assistant/tool 与 call_id 对齐**
 - **Port 并发**：待确认/待设备字典读写加 `threading.Lock`
 - **会话持久化**：`runtime.yaml` 中 `session_store.backend: sqlite` + `sqlite_path`，统一使用 `infra/SqliteSessionStore`（无独立内存 dict 实现；测试用 `SqliteSessionStore.ephemeral()`）
 - HTTP 复用 `GenericAgentPort`：待确认/待设备按 `(user_id, channel)` 分区；每请求 `HttpEmitter` 经 thread-local 注入
@@ -85,7 +85,7 @@
 | P7 | 视需求 | 向量检索 | 依赖 P3 与知识库场景 |
 
 ### 目录结构备注
-- 根目录（概览）：`README.md`、`Dockerfile`、`requirements*.txt`、`pyproject.toml`、`config/`（环境模板）、`docs/`（`guides/` 运维、`design/` 设计与变更日志）
+- 根目录（概览）：`README.md`、`Dockerfile`、`requirements*.txt`、`pyproject.toml`、`docs/`（`guides/` 运维、`design/` 设计与变更日志）；密钥仅本机 `env.ps1` / 环境变量，**不**随仓库提供模板目录
 - `src/app`：组合根与运行入口（HTTP/CLI）
 - `src/port`：对外协议与事件边界
 - `src/core`：内核编排 + 策略

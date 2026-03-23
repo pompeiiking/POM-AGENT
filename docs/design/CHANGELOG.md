@@ -1,5 +1,13 @@
 ## CHANGELOG
 
+### Release 0.4.6（2026-03-23）
+
+**版本号**：`0.4.6`。
+
+- **安全与仓库布局**：删除仓库根目录 **`config/`**（原含 `env.ps1.example`、`.env.example`），避免对外暴露密钥模板路径；本地仅使用根目录 **`env.ps1`**（gitignore）或系统环境变量注入 `DEEPSEEK_API_KEY`。`scripts/load_env.ps1` 仅加载根目录 `env.ps1`。运行时 YAML 仍在 **`src/platform_layer/resources/config/`**，不受影响。
+
+---
+
 ### Release 0.4.5（2026-03-23）
 
 **版本号**：`0.4.5`。

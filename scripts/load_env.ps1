@@ -1,18 +1,10 @@
-# Load env.ps1 if present: prefer config/env.ps1, then repo-root env.ps1 (ASCII-only output).
+# Load repo-root env.ps1 if present (ASCII-only output; do not commit env.ps1).
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$Candidates = @(
-    (Join-Path $RepoRoot "config\env.ps1"),
-    (Join-Path $RepoRoot "env.ps1")
-)
-$Loaded = $false
-foreach ($EnvScript in $Candidates) {
-    if (Test-Path $EnvScript) {
-        . $EnvScript
-        Write-Host "Loaded env: $EnvScript"
-        $Loaded = $true
-        break
-    }
+$EnvScript = Join-Path $RepoRoot "env.ps1"
+if (Test-Path $EnvScript) {
+    . $EnvScript
+    Write-Host "Loaded env: $EnvScript"
 }
-if (-not $Loaded) {
-    Write-Warning "env.ps1 not found. Copy config/env.ps1.example to config/env.ps1 (or env.ps1 at repo root) and set DEEPSEEK_API_KEY."
+else {
+    Write-Warning "env.ps1 not found at $EnvScript. Set DEEPSEEK_API_KEY in the environment, or create env.ps1 locally (see README; gitignored)."
 }

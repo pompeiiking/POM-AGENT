@@ -1,6 +1,6 @@
 # Pompeii-Agent
 
-**当前版本**：`0.4.5`（见 `src/app/version.py`；HTTP `GET /health` 返回 `version` 字段）
+**当前版本**：`0.4.6`（见 `src/app/version.py`；HTTP `GET /health` 返回 `version` 字段）
 
 Pompeii-Agent 是一个面向长期演进的 **微内核 Agent 基础设施**项目：用清晰分层与严格依赖方向，把「运行时入口 / 端口边界 / 内核编排 / 模块处理 / 平台能力」解耦，便于后续扩展 HTTP/WS、真实模型、MCP、长期存储与安全策略。
 
@@ -17,7 +17,7 @@ Pompeii-Agent 是一个面向长期演进的 **微内核 Agent 基础设施**项
 
 ## 快速启动（HTTP，对接用）
 
-在 PowerShell 中（若已复制 `config/env.ps1.example` 为 `config/env.ps1`，或复制为仓库根目录 `env.ps1`，并填入 Key，将自动注入 `DEEPSEEK_API_KEY`）。若提示「禁止运行脚本」，请用 **`run-http.cmd`**（不依赖执行策略）：
+在 PowerShell 中，若已在**仓库根目录**创建本地 **`env.ps1`**（已加入 `.gitignore`，勿提交），`run-http` / `run-cli` 会自动加载并注入 `DEEPSEEK_API_KEY`。也可在系统中直接设置环境变量 `DEEPSEEK_API_KEY`。若提示「禁止运行脚本」，请用 **`run-http.cmd`**（不依赖执行策略）：
 
 ```powershell
 cd C:\Users\22271\Desktop\Agent
@@ -70,7 +70,7 @@ cd C:\Users\22271\Desktop\Agent
 
 ## 目录结构（概览）
 
-> 以 `src/` 为代码根目录。文档见 `docs/`（`README.md` 索引），本地密钥模板见 `config/`。
+> 以 `src/` 为代码根目录。文档见 `docs/`（`README.md` 索引）。API Key 仅通过本机环境变量或根目录 `env.ps1` 加载，**不在仓库中提供示例密钥文件**。
 
 ```
 src/
@@ -124,10 +124,10 @@ src/
 - **`params.api_key_env`**：声明该 provider 使用的 **环境变量名**（不要在文件里写 Key）；未设置 `api_key_env` 的 legacy `deepseek` backend 仍默认读 `DEEPSEEK_API_KEY`。
 - 由 `load_model_registry` 加载，在 `composition.build_core` / `http_runtime` 中注入 `ModelModuleImpl`。
 
-示例环境变量配置：
+本地环境变量（勿提交到 Git）：
 
-- 跨平台 `.env` 示例：`config/.env.example`
-- PowerShell 脚本示例：`config/env.ps1.example`
+- **PowerShell**：在仓库根目录新建 `env.ps1`（文件名已 gitignore），例如一行：`$env:DEEPSEEK_API_KEY = "your-key"`；或在本机/用户环境变量中设置 `DEEPSEEK_API_KEY`。
+- **Docker / CI**：通过 `-e` 或密钥管理注入，勿写入镜像。
 
 ## 当前运行链路（简述）
 

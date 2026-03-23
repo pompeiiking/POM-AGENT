@@ -28,7 +28,6 @@ project-root/
 ├── data/                   # 数据目录（与源码分离）
 ├── tests/                  # 测试（如果选择统一测试目录方案）
 ├── docs/                   # 文档（guides/ 运维测试；design/ 设计与 CHANGELOG）
-├── config/                 # 环境变量模板（env.ps1.example、.env.example）
 ├── RULES.md                # 项目规范（本系统）
 ├── STATUS.md               # 项目状态快照
 ├── CHANGELOG.md            # 变更日志

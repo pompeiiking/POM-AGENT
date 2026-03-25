@@ -6,38 +6,37 @@
 # backend 取值：
 #   - stub：不发起 HTTP，返回占位文本（便于无 Key 开发）。
 #   - openai_compatible：OpenAI 兼容 /v1/chat/completions（DeepSeek、OpenAI、多数聚合网关等）。
-#   - deepseek：与 openai_compatible 等价实现，若未设置 api_key_env 则默认使用环境变量 DEEPSEEK_API_KEY。
 #
 # 密钥：禁止写入本文件；在 params.api_key_env 中声明环境变量名，运行前在 shell 中 export。
+#
+# 可选：
+#   params.model_backend_ref: 聊天推理后端热插拔（默认 builtin:openai_chat；亦可 entrypoint:<name> 注册到 pompeii_agent.model_backends）
+#
+# 可选 Failover（架构 3.2）：主 provider 为 openai_compatible 且返回可识别的失败文案时，按序换用链上其它 id（仅一层，不递归备用的 failover_chain）。
+#   failover_chain: ["openai", "stub"]
 #
 # 可选（OpenAI 兼容原生工具）：
 #   params.tools: [ { "type": "function", "function": { "name": "...", "description": "...", "parameters": {...} } }, ... ]
 #   params.tool_choice: "auto" | "none" | { "type": "function", "function": { "name": "..." } }
-# 可选（提示词分层）：
-#   params.prompt_profiles:
-#     default:
-#       default: |
-#         ...
-#       concise: |
-#         ...
-#     strict:
-#       default: |
-#         ...
-#       tool_first: |
-#         ...
-# 可选（提示词变量注入）：
-#   params.prompt_vars: { key: value }                # 静态变量
-#   params.prompt_vars_env: { key: ENV_NAME }         # 从环境变量注入
-#   params.prompt_vars_strict: false                  # 严格模式下缺失变量触发渲染失败并回退原模板
-# 内建变量：{provider_id} {model_id} {prompt_profile} {prompt_strategy}
-#         {channel} {user_id} {today} {now_utc} {current_message}
-# 可选（用户提示词模板）：
-#   params.user_prompt_profiles:
-#     default:
-#       default: "<user_request>{user_input}</user_request>"
-#   params.user_prompt_vars / user_prompt_vars_env / user_prompt_vars_strict
-#   params.user_input_max_chars: 4000   # 用户输入注入模板前的字符上限（0=不限制）
+# 提示词相关配置已迁移到 prompts.yaml（按 provider.id 合并注入）
+# 亦可在此或 prompts 合并 params 中设置 prompt_strategy_ref（覆盖 kernel.prompt_strategy_ref）：builtin:none 或 entrypoint:<name> → pompeii_agent.prompt_strategies
 # 响应中的 message.tool_calls 会被解析为 ModelOutput(kind=tool_call)。
+#
+# 连接复用（默认开启）：同 base_url + timeout 复用 httpx 连接池；单测或排障可设 params.http_disable_connection_pool: true
+#
+# 简易熔断（可选，按 provider.id 状态）：连续「与 Failover 相同的文本失败启发式」达阈值后，在 open_seconds 内拒绝新请求（返回熔断文案）。
+#   params.model_circuit_failure_threshold: 正整数启用；缺省或 0 关闭
+#   params.model_circuit_open_seconds: 熔断时长（秒），默认 60，最小 1
+#
+# 滑动窗口调用限流（可选，进程内计量）：在 OpenAI 兼容路径上，每 provider 在 window 内最多 max 次「即将发起 HTTP 的请求」；超限返回文案含「调用过于频繁」，可被 failover_chain 换备用。
+#   params.model_rate_max_calls_per_window: 正整数启用；缺省或 0 关闭
+#   params.model_rate_window_seconds: 窗口秒数，默认 60，最小 1
+#
+# 流式（OpenAI 兼容 SSE）：
+#   params.stream: true
+#   且 HTTP/Port 入站 UserMessageInput.stream / AgentRequest.stream 为真。
+#   未配置 params.tools 时走 SSE；若配置了 tools 且需流式，须同时 **params.stream_with_tools: true**（依赖上游对流式 tool_calls 的支持）。
+#   events 中会额外出现 kind=stream_delta（正文 delta）；tool 结果在流结束后解析为 tool_call。
 
 default_provider: deepseek
 
@@ -54,55 +53,6 @@ providers:
       api_key_env: "DEEPSEEK_API_KEY"
       max_history: 10
       timeout: 30.0
-      prompt_vars:
-        project_name: "Pompeii-Agent"
-      prompt_vars_env:
-        tenant_policy: "POMPEII_TENANT_POLICY"
-      user_prompt_profiles:
-        default:
-          default: |
-            <user_request>
-            {user_input}
-            </user_request>
-      user_input_max_chars: 4000
-      # 工具结果直出格式（用于 tool_first 回流轮次）
-      # 可选：raw | short | short_with_reason
-      # 支持字符串简写，或按 strategy 细分：
-      # tool_result_render:
-      #   default: short
-      #   tool_first: short_with_reason
-      # 工具结果直出触发范围（可选）
-      # - 缺省：所有工具
-      # - list：白名单
-      # - mapping：按 strategy 配置白名单
-      # tool_first_tools:
-      #   default: ["ping", "add"]
-      #   strict: ["ping", "add", "echo"]
-      tool_first_tools:
-        default: ["ping", "add"]
-      tool_result_render:
-        default: short
-        tool_first: short
-      prompt_profiles:
-        default:
-          default: |
-            你是 Pompeii-Agent 的模型执行层。
-            目标：在不违背安全约束的前提下，给出直接、可执行、少废话的回答。
-            规则：
-            1) 优先基于已给上下文回答，不编造未提供的事实。
-            2) 对工具执行结果，先给出结论，再简要解释；不要重复原始 JSON。
-            3) 当用户输入是 /tool 指令时，优先配合工具工作流，不改写为闲聊。
-          concise: |
-            你是 {project_name}（简洁策略：{prompt_strategy}）。
-            用最少文字给出可执行结论；必要时只给结论与下一步。
-        strict:
-          default: |
-            你是 Pompeii-Agent（strict 模式）。
-            只输出与任务直接相关的信息；避免寒暄与无关延展。
-            若证据不足，明确说明“信息不足”，并给出最小下一步建议。
-          tool_first: |
-            你是 Pompeii-Agent（strict + tool_first）。
-            当输入为 /tool 指令时，优先输出工具结果要点，再补一句解释；禁止扩展为闲聊。
 
   openai:
     backend: openai_compatible
@@ -112,21 +62,3 @@ providers:
       api_key_env: "OPENAI_API_KEY"
       max_history: 10
       timeout: 60.0
-      user_prompt_profiles:
-        default:
-          default: |
-            <user_request>
-            {user_input}
-            </user_request>
-      user_input_max_chars: 4000
-      tool_first_tools:
-        default: ["ping", "add"]
-      tool_result_render:
-        default: short
-        tool_first: short
-      prompt_profiles:
-        default:
-          default: |
-            You are the model execution layer of Pompeii-Agent.
-            Be concise, accurate, and action-oriented.
-            Prefer clear conclusions over long explanations.

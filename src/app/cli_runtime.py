@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from app.composition import build_port
-from port.agent_port import CliEmitter, CliMode, InteractionMode
+from app.config_loaders.runtime_config_loader import RuntimeConfigSource, load_runtime_config
+from app.port_mode_registry import resolve_interaction_mode
+from port.agent_port import CliEmitter, InteractionMode
 from port.input_events import DeviceResultInput, SystemCommandInput, UserMessageInput
 from port.request_factory import cli_request_factory
 
@@ -28,7 +32,12 @@ def run(mode: InteractionMode) -> None:
 
 
 def main() -> None:
-    run(CliMode())
+    src_root = Path(__file__).resolve().parents[1]
+    rc = load_runtime_config(
+        RuntimeConfigSource(path=src_root / "platform_layer" / "resources" / "config" / "runtime.yaml")
+    )
+    mode = resolve_interaction_mode(rc.port_interaction_mode_ref)
+    run(mode)
 
 
 if __name__ == "__main__":

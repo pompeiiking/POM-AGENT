@@ -54,6 +54,21 @@ def test_assembly_build_and_tool_meta() -> None:
     ctx2 = asm.apply_tool_result(sess, ToolResult(name="echo", output={"x": 2}))
     assert ctx2.meta.get("phase") == "post_tool"
     assert "echo" in ctx2.current
+    assert "pompeii:zone-begin name=tool_result" in ctx2.current
+    assert "source=local" in ctx2.current and "trust=high" in ctx2.current
+
+    asm_off = AssemblyModuleImpl(context_isolation_enabled=False)
+    ctx3 = asm_off.apply_tool_result(sess, ToolResult(name="echo", output={"x": 2}, source="mcp"))
+    assert "pompeii:zone-begin" not in ctx3.current
+    assert ctx3.current.startswith("tool echo ->")
+
+
+def test_assembly_tool_result_zone_mcp_trust_low() -> None:
+    asm = AssemblyModuleImpl()
+    sess = _session()
+    ctx = asm.apply_tool_result(sess, ToolResult(name="x", output={"ok": True}, source="mcp"))
+    assert "source=mcp" in ctx.current
+    assert "trust=low" in ctx.current
 
 
 def test_assembly_format_final_reply_model_output() -> None:

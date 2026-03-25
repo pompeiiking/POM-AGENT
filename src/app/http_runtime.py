@@ -25,6 +25,10 @@ class InputDTO:
     channel: str = "http"
     text: str | None = None
     payload: str | None = None
+    # OpenAI Chat 风格多模态 user 块；与 text 并存时 text 可作说明（可为空字符串）
+    openai_user_content: list[dict[str, Any]] | None = None
+    # 为真时，若 model provider 的 params.stream 为真且未带 tools，则走 OpenAI 兼容流式并在 events 中产出 stream_delta
+    stream: bool = False
 
 
 app = FastAPI(title=f"Pompeii-Agent (experimental http) v{__version__}")
@@ -71,7 +75,7 @@ def http_list_archives(
 @app.post("/input")
 def handle_input(dto: InputDTO) -> dict[str, Any]:
     emitter = HttpEmitter()
-    # user_message 必须带 text 键（可为空字符串）；缺字段则不进 Core，避免误调模型
+    # user_message 必须带 text 键（可为空字符串）；纯多模态时可 text="" 但须提供 openai_user_content
     if dto.kind == "user_message" and dto.text is None:
         emitter.emit(
             ErrorEvent(
@@ -81,10 +85,27 @@ def handle_input(dto: InputDTO) -> dict[str, Any]:
             )
         )
         return JSONResponse({"events": emitter.dump()}, media_type="application/json; charset=utf-8")
+    if dto.kind == "user_message":
+        mm = dto.openai_user_content
+        has_mm = bool(mm and len(mm) > 0)
+        if not (dto.text or "").strip() and not has_mm:
+            emitter.emit(
+                ErrorEvent(
+                    kind="error",
+                    message="user_message requires non-empty `text` or a non-empty `openai_user_content` list",
+                    reason="validation_empty_payload",
+                )
+            )
+            return JSONResponse({"events": emitter.dump()}, media_type="application/json; charset=utf-8")
 
     kind_actions = {
         "user_message": lambda: _HTTP_PORT.handle(
-            UserMessageInput(kind="user_message", text=dto.text or ""),
+            UserMessageInput(
+                kind="user_message",
+                text=dto.text or "",
+                stream=dto.stream,
+                openai_user_content=tuple(dto.openai_user_content) if dto.openai_user_content else None,
+            ),
             user_id=dto.user_id,
             channel=dto.channel,
             emitter=emitter,

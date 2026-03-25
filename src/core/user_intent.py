@@ -32,6 +32,29 @@ class SystemArchive:
 
 
 @dataclass(frozen=True)
+class SystemRemember:
+    """显式写入长期记忆（由 MemoryOrchestrator 落标准库 + 向量投影）。"""
+    text: str
+
+
+@dataclass(frozen=True)
+class SystemForget:
+    """按短语 tombstone 长期记忆项（标准库 + 向量级联）。"""
+    phrase: str
+
+
+@dataclass(frozen=True)
+class SystemDelegate:
+    """
+    多 Agent 协作（架构 ver0.4 Port.emit delegate）：
+    由核心登记并经 Port 发出 DelegateEvent；具体子代理路由由网关在事件消费侧实现。
+    """
+
+    target: str
+    payload: str
+
+
+@dataclass(frozen=True)
 class ToolEcho:
     """触发 echo 工具。"""
     text: str
@@ -61,6 +84,9 @@ UserIntent = Union[
     SystemHelp,
     SystemSummary,
     SystemArchive,
+    SystemRemember,
+    SystemForget,
+    SystemDelegate,
     ToolEcho,
     ToolTakePhoto,
     ToolPing,

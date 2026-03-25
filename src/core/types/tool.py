@@ -16,4 +16,6 @@ class ToolCall:
 class ToolResult:
     name: str
     output: Any
+    # 执行来源："mcp"=MCP 桥；"device"=Port 设备回传；"http_fetch"=内置 HTTP 拉取等；供安全策略 trust 分档；None/其他视为本地
+    source: str | None = None
 

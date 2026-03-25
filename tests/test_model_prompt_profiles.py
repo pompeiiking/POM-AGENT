@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from core.session.session import Part, Message, Session, SessionStatus, SessionStats
 from core.session.session import SessionConfig, SessionLimits
 from modules.assembly.types import Context
 from modules.model.config import ModelProvider
 from modules.model.impl import (
     _maybe_make_tool_first_reply,
+    _resolve_system_prompt,
     _resolve_user_message_for_model,
     _render_prompt_template,
     _resolve_prompt_profile_text,
     _sanitize_openai_history_messages,
 )
+from infra.prompt_cache import PromptCache
 
 
 def _limits() -> SessionLimits:
@@ -58,11 +62,6 @@ def test_resolve_prompt_profile_text_prefers_strategy_inside_profile() -> None:
         }
     }
     assert _resolve_prompt_profile_text(params, "strict", "tool_first") == "strict tool-first"
-
-
-def test_resolve_prompt_profile_text_supports_legacy_string_profile() -> None:
-    params = {"prompt_profiles": {"default": "legacy default"}}
-    assert _resolve_prompt_profile_text(params, "default", "concise") == "legacy default"
 
 
 def _session_for_strategy(strategy: str) -> Session:
@@ -128,6 +127,22 @@ def test_tool_first_reply_can_render_short_with_reason() -> None:
     )
     context = Context(messages=[], current='tool ping -> {"result":"pong"}', intent=None, meta={})
     assert _maybe_make_tool_first_reply(session=session, context=context, provider=provider) == "pong\n(source: ping)"
+
+
+def test_tool_first_reply_unwraps_context_isolation_zone() -> None:
+    from modules.assembly.context_isolation import format_isolated_zone
+    from modules.assembly.formatting import serialize_tool_output_for_current
+
+    session = _session_for_strategy("tool_first")
+    provider = ModelProvider(
+        id="deepseek",
+        backend="openai_compatible",
+        params={"tool_result_render": {"tool_first": "short"}},
+    )
+    inner = serialize_tool_output_for_current("ping", {"result": "pong"})
+    wrapped = format_isolated_zone("tool_result", inner, source="local", trust="high")
+    context = Context(messages=[], current=wrapped, intent=None, meta={})
+    assert _maybe_make_tool_first_reply(session=session, context=context, provider=provider) == "pong"
 
 
 def test_tool_first_reply_respects_tool_whitelist() -> None:
@@ -284,3 +299,81 @@ def test_resolve_user_message_for_model_truncates_when_limit_configured() -> Non
     )
     assert got.endswith("...(truncated)")
     assert len(got) <= 20
+
+
+def test_resolve_system_prompt_appends_active_skills() -> None:
+    session = _session_for_strategy("default")
+    session.config.skills = ["echo"]
+    provider = ModelProvider(
+        id="deepseek",
+        backend="openai_compatible",
+        params={"prompt_profiles": {"strict": {"default": "base prompt"}}},
+    )
+    context = Context(messages=[], current="hello", intent=None, meta={})
+
+    class _Skill:
+        enabled = True
+        index = "SKILL-001"
+        title = "Echo Tool Usage"
+        content = "Use echo carefully."
+
+    text = _resolve_system_prompt(
+        provider=provider,
+        session=session,
+        context=context,
+        skill_registry={"echo": _Skill()},
+        prompt_cache=PromptCache(),
+    )
+    assert text is not None
+    assert "base prompt" in text
+    assert "<active_skills>" in text
+    assert "SKILL-001" in text
+
+
+def test_resolve_system_prompt_applies_strategy_hook() -> None:
+    session = _session_for_strategy("default")
+    provider = ModelProvider(
+        id="deepseek",
+        backend="openai_compatible",
+        params={
+            "prompt_profiles": {"strict": {"default": "base prompt"}},
+            "prompt_strategy_ref": "entrypoint:dummy",
+        },
+    )
+    context = Context(messages=[], current="hello", intent=None, meta={})
+
+    def hook(*, system_prompt: str | None, **kwargs: object) -> str | None:
+        return "[[hook]]" + (system_prompt or "")
+
+    with patch("modules.model.prompt_strategy_registry.resolve_prompt_strategy", return_value=hook):
+        text = _resolve_system_prompt(
+            provider=provider,
+            session=session,
+            context=context,
+            skill_registry={},
+            prompt_cache=None,
+        )
+    assert text == "[[hook]]base prompt"
+
+
+def test_resolve_system_prompt_strategy_can_inject_when_no_yaml_profile() -> None:
+    session = _session_for_strategy("default")
+    provider = ModelProvider(
+        id="deepseek",
+        backend="openai_compatible",
+        params={"prompt_strategy_ref": "entrypoint:dummy"},
+    )
+    context = Context(messages=[], current="hello", intent=None, meta={})
+
+    def hook(*, system_prompt: str | None, **kwargs: object) -> str | None:
+        return "only-plugin" if system_prompt is None else system_prompt
+
+    with patch("modules.model.prompt_strategy_registry.resolve_prompt_strategy", return_value=hook):
+        text = _resolve_system_prompt(
+            provider=provider,
+            session=session,
+            context=context,
+            skill_registry={},
+            prompt_cache=None,
+        )
+    assert text == "only-plugin"

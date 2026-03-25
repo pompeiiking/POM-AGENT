@@ -21,4 +21,5 @@ class Context:
     current: str
     intent: UserIntent | None
     meta: dict[str, Any]
+    memory_context_block: str | None = None
 

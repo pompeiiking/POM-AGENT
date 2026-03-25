@@ -87,6 +87,9 @@ class SessionManager(ABC):
         """归档摘要列表（SQLite 后端有数据时非空）。"""
         return self._store.list_archives_for_user(user_id, limit=limit)
 
+    def update_archive_llm_summary(self, session_id: str, *, status: str, llm_text: str | None = None) -> None:
+        self._store.update_archive_llm_summary(session_id, status=status, llm_text=llm_text)
+
 
 def _new_session_id() -> str:
     return uuid.uuid4().hex

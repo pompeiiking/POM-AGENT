@@ -16,9 +16,14 @@ Backend = Literal["sqlite"]
 
 @dataclass(frozen=True)
 class RuntimeConfig:
+    """
+    - ``sqlite_path``：相对路径相对于 ``src`` 根目录（与 platform_layer 并列）。
+    - ``port_interaction_mode_ref``：见 ``app.port_mode_registry``；CLI 用。
+    """
+
     session_backend: Backend
-    """sqlite 库文件路径；相对路径相对于 `src` 根目录（与 platform_layer 并列）。"""
     sqlite_path: Path
+    port_interaction_mode_ref: str = "builtin:cli"
 
 
 @dataclass(frozen=True)
@@ -40,7 +45,22 @@ def load_runtime_config(source: RuntimeConfigSource) -> RuntimeConfig:
     if not isinstance(sqlite_rel, str) or not sqlite_rel.strip():
         raise RuntimeConfigLoaderError("session_store.sqlite_path must be a non-empty string when present")
 
-    return RuntimeConfig(session_backend="sqlite", sqlite_path=Path(sqlite_rel.strip()))
+    port_ref = "builtin:cli"
+    port_raw = data.get("port")
+    if port_raw is not None:
+        if not isinstance(port_raw, Mapping):
+            raise RuntimeConfigLoaderError("port must be a mapping when present")
+        im = port_raw.get("interaction_mode_ref")
+        if im is not None:
+            if not isinstance(im, str) or not im.strip():
+                raise RuntimeConfigLoaderError("port.interaction_mode_ref must be a non-empty string when present")
+            port_ref = im.strip()
+
+    return RuntimeConfig(
+        session_backend="sqlite",
+        sqlite_path=Path(sqlite_rel.strip()),
+        port_interaction_mode_ref=port_ref,
+    )
 
 
 def _require_mapping(parent: Mapping[str, Any], key: str) -> Mapping[str, Any]:

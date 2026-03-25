@@ -31,6 +31,8 @@ class McpServerEntry:
 class McpRuntimeConfig:
     enabled: bool
     servers: tuple[McpServerEntry, ...]
+    # builtin:stdio = 内置多进程 stdio 客户端；entrypoint:<name> 见 pompeii_agent.mcp_bridges
+    bridge_ref: str = "builtin:stdio"
 
 
 @dataclass(frozen=True)
@@ -42,18 +44,19 @@ def load_mcp_config(source: McpConfigSource, *, src_root: Path) -> McpRuntimeCon
     if yaml is None:
         raise McpConfigLoaderError("PyYAML is required for mcp_servers.yaml")
     if not source.path.exists():
-        return McpRuntimeConfig(enabled=False, servers=())
+        return McpRuntimeConfig(enabled=False, servers=(), bridge_ref="builtin:stdio")
 
     raw = yaml.safe_load(source.path.read_text(encoding="utf-8"))
     if raw is None:
-        return McpRuntimeConfig(enabled=False, servers=())
+        return McpRuntimeConfig(enabled=False, servers=(), bridge_ref="builtin:stdio")
     if not isinstance(raw, dict):
         raise McpConfigLoaderError("mcp_servers.yaml root must be a mapping")
 
     enabled = bool(raw.get("enabled", False))
+    bridge_ref = _parse_bridge_ref(raw)
     servers_raw = raw.get("servers")
     if servers_raw is None:
-        return McpRuntimeConfig(enabled=enabled, servers=())
+        return McpRuntimeConfig(enabled=enabled, servers=(), bridge_ref=bridge_ref)
     if not isinstance(servers_raw, list):
         raise McpConfigLoaderError("servers must be a list")
 
@@ -89,7 +92,24 @@ def load_mcp_config(source: McpConfigSource, *, src_root: Path) -> McpRuntimeCon
             )
         )
 
-    return McpRuntimeConfig(enabled=enabled, servers=tuple(servers))
+    return McpRuntimeConfig(enabled=enabled, servers=tuple(servers), bridge_ref=bridge_ref)
+
+
+def _parse_bridge_ref(raw: Mapping[str, Any]) -> str:
+    v = raw.get("bridge_ref")
+    if v is None:
+        return "builtin:stdio"
+    if not isinstance(v, str) or not v.strip():
+        raise McpConfigLoaderError("bridge_ref must be non-empty string when present")
+    s = v.strip()
+    if s == "builtin:stdio":
+        return s
+    if s.startswith("entrypoint:"):
+        name = s[len("entrypoint:") :].strip()
+        if not name:
+            raise McpConfigLoaderError("bridge_ref entrypoint name must be non-empty")
+        return f"entrypoint:{name}"
+    raise McpConfigLoaderError("bridge_ref must be 'builtin:stdio' or 'entrypoint:<name>'")
 
 
 def _require_str(parent: Mapping[str, Any], key: str) -> str:

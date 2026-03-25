@@ -43,6 +43,10 @@ class SessionLimits:
     assembly_message_max_chars: int = 0
     # 组装部纳入 Context 的近似 token 总上限（启发式，见 assembly/token_budget.py）；0 表示不按总量裁剪
     assembly_approx_context_tokens: int = 0
+    # §7.3 第一级：openai_v1 的 tool 消息 content 最大字符；0 表示不启用该级（仍可走 2/3 级）
+    assembly_compress_tool_max_chars: int = 0
+    # §7.3 第二级：将早期相邻纯文本 user+assistant 折叠为一轮时的总字符上限；0 表示不启用该级
+    assembly_compress_early_turn_chars: int = 0
 
 @dataclass
 class SessionConfig:

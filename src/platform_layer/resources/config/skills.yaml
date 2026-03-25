@@ -1,0 +1,27 @@
+skills:
+  # 可选：enable_entrypoints: false（默认）；为 true 时合并 setuptools 组 entrypoint_group（默认 pompeii_agent.skills）；YAML 项覆盖同名插件
+  # enable_entrypoints: false
+  # entrypoint_group: "pompeii_agent.skills"
+  items:
+    - id: "echo"
+      index: "SKILL-001"
+      title: "Echo Tool Usage"
+      summary: "Use echo for quick payload checks."
+      quality_tier: "gold"
+      enabled: true
+      tags: ["tooling", "debug"]
+      content: |
+        When validation/debugging is needed, prefer `echo` to inspect compact payloads.
+        Keep outputs concise and task-oriented.
+
+    - id: "coding_baseline"
+      index: "SKILL-002"
+      title: "Coding Baseline"
+      summary: "Focused code changes with tests."
+      quality_tier: "gold"
+      enabled: true
+      tags: ["coding", "quality"]
+      content: |
+        Make minimal, targeted changes.
+        Preserve existing architecture boundaries.
+        Validate with tests before final output.

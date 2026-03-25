@@ -56,6 +56,8 @@ def _config_to_dict(c: SessionConfig) -> dict[str, Any]:
             "summary_excerpt_chars": c.limits.summary_excerpt_chars,
             "assembly_message_max_chars": c.limits.assembly_message_max_chars,
             "assembly_approx_context_tokens": c.limits.assembly_approx_context_tokens,
+            "assembly_compress_tool_max_chars": c.limits.assembly_compress_tool_max_chars,
+            "assembly_compress_early_turn_chars": c.limits.assembly_compress_early_turn_chars,
         },
     }
 
@@ -78,6 +80,8 @@ def _config_from_dict(d: dict[str, Any]) -> SessionConfig:
             summary_excerpt_chars=int(lim.get("summary_excerpt_chars", 200)),
             assembly_message_max_chars=int(lim.get("assembly_message_max_chars", 0)),
             assembly_approx_context_tokens=int(lim.get("assembly_approx_context_tokens", 0)),
+            assembly_compress_tool_max_chars=int(lim.get("assembly_compress_tool_max_chars", 0)),
+            assembly_compress_early_turn_chars=int(lim.get("assembly_compress_early_turn_chars", 0)),
         ),
     )
 

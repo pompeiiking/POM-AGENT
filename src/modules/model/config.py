@@ -16,6 +16,8 @@ class ModelProvider:
     id: str
     backend: str
     params: Mapping[str, Any]
+    # 主 provider OpenAI 兼容调用失败时，按序尝试这些 provider id（仅一层，不递归备用链）
+    failover_chain: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

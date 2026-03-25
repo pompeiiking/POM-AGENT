@@ -69,6 +69,16 @@ class SqliteSessionStore(SessionStore):
             "CREATE INDEX IF NOT EXISTS idx_archives_user ON session_archives(user_id, archived_at DESC)"
         )
         self._conn.commit()
+        self._migrate_session_archives_llm_columns()
+
+    def _migrate_session_archives_llm_columns(self) -> None:
+        cur = self._conn.execute("PRAGMA table_info(session_archives)")
+        cols = {str(row[1]) for row in cur.fetchall()}
+        if "llm_summary_text" not in cols:
+            self._conn.execute("ALTER TABLE session_archives ADD COLUMN llm_summary_text TEXT")
+        if "llm_summary_status" not in cols:
+            self._conn.execute("ALTER TABLE session_archives ADD COLUMN llm_summary_status TEXT")
+        self._conn.commit()
 
     def _load_payload(self, session_id: str) -> Session | None:
         cur = self._conn.execute(
@@ -173,12 +183,31 @@ class SqliteSessionStore(SessionStore):
         )
         self._conn.commit()
 
+    def update_archive_llm_summary(self, session_id: str, *, status: str, llm_text: str | None = None) -> None:
+        with self._lock:
+            if llm_text is None:
+                self._conn.execute(
+                    "UPDATE session_archives SET llm_summary_status = ? WHERE session_id = ?",
+                    (status, session_id),
+                )
+            else:
+                self._conn.execute(
+                    """
+                    UPDATE session_archives
+                    SET llm_summary_status = ?, llm_summary_text = ?
+                    WHERE session_id = ?
+                    """,
+                    (status, llm_text, session_id),
+                )
+            self._conn.commit()
+
     def list_archives_for_user(self, user_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
         """按用户列出归档摘要（新在前），供后续 HTTP/检索接入。"""
         with self._lock:
             cur = self._conn.execute(
                 """
-                SELECT session_id, channel, archived_at, summary_text, message_count
+                SELECT session_id, channel, archived_at, summary_text, message_count,
+                       llm_summary_text, llm_summary_status
                 FROM session_archives
                 WHERE user_id = ?
                 ORDER BY archived_at DESC
@@ -194,6 +223,8 @@ class SqliteSessionStore(SessionStore):
                 "archived_at": r[2],
                 "summary_text": r[3],
                 "message_count": r[4],
+                "llm_summary_text": r[5],
+                "llm_summary_status": r[6],
             }
             for r in rows
         ]

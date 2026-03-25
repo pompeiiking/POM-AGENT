@@ -16,3 +16,6 @@ env.ps1
 
 # SQLite session DB (local data)
 src/platform_layer/resources/data/*.db
+
+# IDE / 本地工具（不上传）
+.cursor/

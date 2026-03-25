@@ -35,3 +35,7 @@ class SessionStore(ABC):
     def list_archives_for_user(self, user_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
         """长期归档摘要列表；SQLite 实现覆盖，其余默认空。"""
         return []
+
+    def update_archive_llm_summary(self, session_id: str, *, status: str, llm_text: str | None = None) -> None:
+        """归档 LLM 摘要状态；SQLite 实现写入 session_archives.llm_* 列。"""
+        return

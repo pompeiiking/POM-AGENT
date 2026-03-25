@@ -7,6 +7,12 @@ from core.types import DeviceRequest, ToolCall
 
 
 @dataclass(frozen=True, slots=True)
+class StreamDeltaEvent:
+    kind: Literal["stream_delta"]
+    fragment: str
+
+
+@dataclass(frozen=True, slots=True)
 class ReplyEvent:
     kind: Literal["reply"]
     text: str
@@ -36,6 +42,7 @@ class ConfirmationEvent:
 
 @dataclass(frozen=True, slots=True)
 class DelegateEvent:
+    """子代理委派：由 `SystemDelegate` / `AgentResponse.reason=delegate` 触发，网关消费后路由。"""
     kind: Literal["delegate"]
     target: str
     payload: str
@@ -49,6 +56,7 @@ class DeviceRequestEvent:
 
 
 PortEvent = Union[
+    StreamDeltaEvent,
     ReplyEvent,
     ErrorEvent,
     StatusEvent,

@@ -1,7 +1,7 @@
 """
 在 Session.messages 中承载 OpenAI Chat Completions 所需的 assistant(tool_calls) / tool(tool_call_id) 结构。
 
-使用 Part.content 为带 `_format: openai_v1` 的 dict，由模型层 `_render_history_messages_for_model` 展开为 API `messages` 元素。
+使用 Part.content 为带 `_format: openai_v1` 的 dict，由模型层 `_render_history_messages_for_model_plain` 展开为 API `messages` 元素（关卡② 包装在其后单独施加）。
 """
 
 from __future__ import annotations

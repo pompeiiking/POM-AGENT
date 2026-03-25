@@ -42,6 +42,12 @@ def load_session_config(source: SessionConfigSource) -> SessionConfig:
         summary_excerpt_chars=_optional_positive_int(limits_data, "summary_excerpt_chars", default=200),
         assembly_message_max_chars=_optional_nonneg_int(limits_data, "assembly_message_max_chars", default=0),
         assembly_approx_context_tokens=_optional_nonneg_int(limits_data, "assembly_approx_context_tokens", default=0),
+        assembly_compress_tool_max_chars=_optional_nonneg_int(
+            limits_data, "assembly_compress_tool_max_chars", default=0
+        ),
+        assembly_compress_early_turn_chars=_optional_nonneg_int(
+            limits_data, "assembly_compress_early_turn_chars", default=0
+        ),
     )
 
     return SessionConfig(

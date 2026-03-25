@@ -79,6 +79,51 @@ def test_mcp_demo_server_add() -> None:
     assert "5" in dumped
 
 
+def test_mcp_config_parses_bridge_ref_default() -> None:
+    import tempfile
+
+    src = _src_root()
+    yaml_text = "enabled: false\nservers: []\n"
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, encoding="utf-8") as f:
+        f.write(yaml_text)
+        p = Path(f.name)
+    try:
+        cfg = load_mcp_config(McpConfigSource(path=p), src_root=src)
+        assert cfg.bridge_ref == "builtin:stdio"
+    finally:
+        p.unlink(missing_ok=True)
+
+
+def test_mcp_config_parses_bridge_ref_explicit() -> None:
+    import tempfile
+
+    src = _src_root()
+    yaml_text = 'enabled: false\nbridge_ref: "builtin:stdio"\nservers: []\n'
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, encoding="utf-8") as f:
+        f.write(yaml_text)
+        p = Path(f.name)
+    try:
+        cfg = load_mcp_config(McpConfigSource(path=p), src_root=src)
+        assert cfg.bridge_ref == "builtin:stdio"
+    finally:
+        p.unlink(missing_ok=True)
+
+
+def test_mcp_config_rejects_invalid_bridge_ref() -> None:
+    import tempfile
+
+    src = _src_root()
+    yaml_text = 'enabled: false\nbridge_ref: "nope"\nservers: []\n'
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, encoding="utf-8") as f:
+        f.write(yaml_text)
+        p = Path(f.name)
+    try:
+        with pytest.raises(McpConfigLoaderError):
+            load_mcp_config(McpConfigSource(path=p), src_root=src)
+    finally:
+        p.unlink(missing_ok=True)
+
+
 def test_mcp_config_rejects_shell_in_args() -> None:
     import tempfile
 

@@ -1,7 +1,7 @@
 session:
   # 对应 model_providers.yaml 中 providers 的 id，用于选择该会话使用的模型后端
   model: "deepseek"
-  # 提示词档位：从 model_providers.yaml -> providers.<id>.params.prompt_profiles 中选取
+  # 提示词档位：从 prompts.yaml -> prompts.providers.<id>.prompt_profiles 中选取
   prompt_profile: "default"
   # 提示词策略：从 prompt_profiles.<profile>.<strategy> 中选取，默认 default
   prompt_strategy: "default"
@@ -19,5 +19,8 @@ session:
     assembly_message_max_chars: 12000
     # 组装部纳入 Context 的近似 token 总量上限（启发式，0=不按总量裁剪）；与单条字符上限配合完成 P1
     assembly_approx_context_tokens: 24000
+    # §7.3 可选：超限时先截 tool 正文 / 再折叠早期纯文本 user+assistant（0=关闭该级）
+    # assembly_compress_tool_max_chars: 800
+    # assembly_compress_early_turn_chars: 256
     summary_tail_messages: 12
     summary_excerpt_chars: 200

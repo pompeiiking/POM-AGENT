@@ -79,6 +79,7 @@ def _run_mcp_tool_call_sync(
                 return ToolResult(
                     name=tool_call.name,
                     output=_call_tool_result_to_output(result),
+                    source="mcp",
                 )
 
     def _runner() -> ToolResult:
@@ -96,6 +97,7 @@ def _run_mcp_tool_call_sync(
                 "message": str(exc),
                 "server_id": entry.id,
             },
+            source="mcp",
         )
 
 

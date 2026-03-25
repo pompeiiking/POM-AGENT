@@ -23,11 +23,13 @@ from core.types import DeviceRequest, ToolCall, ToolResult
 from .request_factory import RequestFactory, cli_request_factory, session_request_factory
 from .events import (
     ConfirmationEvent,
+    DelegateEvent,
     DeviceRequestEvent,
     ErrorEvent,
     PortEvent,
     ReplyEvent,
     StatusEvent,
+    StreamDeltaEvent,
 )
 from .input_events import DeviceResultInput, PortInput, SystemCommandInput, UserMessageInput
 import json
@@ -215,7 +217,8 @@ class GenericAgentPort(AgentPort):
                 return
 
             request = rf(user_message)
-            response = self._core.handle(request)
+            stream_cb = self._stream_delta_callback() if request.stream else None
+            response = self._core.handle(request, stream_delta=stream_cb)
             self._handle_core_response(request, response)
         finally:
             if emitter is not None:
@@ -230,6 +233,13 @@ class GenericAgentPort(AgentPort):
             target.emit(event)
             return
         self._emitter.emit(event)
+
+    def _stream_delta_callback(self) -> Callable[[str], None]:
+        def _cb(fragment: str) -> None:
+            if fragment:
+                self.emit(StreamDeltaEvent(kind="stream_delta", fragment=fragment))
+
+        return _cb
 
     def _handle_core_response(self, request: AgentRequest, response: AgentResponse) -> None:
         sess_key = (request.user_id, request.channel)
@@ -260,6 +270,15 @@ class GenericAgentPort(AgentPort):
             )
             return
 
+        if response.reason == "delegate" and response.delegate_target:
+            self.emit(
+                DelegateEvent(
+                    kind="delegate",
+                    target=response.delegate_target,
+                    payload=response.delegate_payload or "",
+                )
+            )
+
         for event in _response_to_events(response):
             self.emit(event)
 
@@ -273,7 +292,10 @@ class GenericAgentPort(AgentPort):
 
     def _confirm_and_run(self, pending: _PendingConfirmation) -> None:
         self.emit(StatusEvent(kind="status", status="confirmation: approved"))
-        response = self._core.handle_confirmation_approved(pending.request, pending.tool_call)
+        stream_cb = self._stream_delta_callback() if pending.request.stream else None
+        response = self._core.handle_confirmation_approved(
+            pending.request, pending.tool_call, stream_delta=stream_cb
+        )
         for event in _response_to_events(response):
             self.emit(event)
 
@@ -295,11 +317,13 @@ class GenericAgentPort(AgentPort):
 
     def _accept_device_result(self, pending: _PendingDeviceRequest, parsed: "_ParsedDeviceResult") -> None:
         self.emit(StatusEvent(kind="status", status="device_result: accepted"))
-        tool_result = ToolResult(name=pending.tool_call.name, output=parsed.output)
+        tool_result = ToolResult(name=pending.tool_call.name, output=parsed.output, source="device")
+        stream_cb = self._stream_delta_callback() if pending.request.stream else None
         response = self._core.handle_device_result(
             pending.request,
             tool_result=tool_result,
             tool_call_id=pending.tool_call.call_id,
+            stream_delta=stream_cb,
         )
         for event in _response_to_events(response):
             self.emit(event)
@@ -456,7 +480,7 @@ def _as_system_command(input_event: PortInput) -> str:
 
 # ============================================================
 # Ⅴ. AgentResponse -> PortEvent：把“内核返回”翻译成“端口事件”
-# 说明：第一版只落地 reply/error，其它事件类型在 events.py 占位。
+# reply/error 为主路径；确认、设备请求、delegate 等在专用分支或扩展 builder 中落地。
 # ============================================================
 EventHandler = Callable[[PortEvent], None]
 
@@ -578,7 +602,13 @@ def _render_confirmation_event(event: PortEvent) -> None:
 
 
 def _render_delegate_event(event: PortEvent) -> None:
-    sys.stdout.write("[DELEGATE] placeholder\n")
+    if isinstance(event, DelegateEvent):
+        payload = event.payload.replace("\n", "\\n")
+        if len(payload) > 200:
+            payload = payload[:200] + "…"
+        sys.stdout.write(f"[DELEGATE] target={event.target!r} payload={payload!r}\n")
+        return
+    _render_unknown_event(event)
 
 
 def _render_device_request_event(event: PortEvent) -> None:

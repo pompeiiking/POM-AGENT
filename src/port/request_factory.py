@@ -4,6 +4,7 @@ from typing import Callable
 from uuid import uuid4
 
 from core import AgentRequest
+from core.session.multimodal_user_payload import agent_payload_from_user_input
 from .input_events import UserMessageInput
 from .intent_parser import parse_user_intent
 
@@ -18,12 +19,14 @@ def cli_request_factory(*, user_id: str = "cli-user", channel: str = "cli") -> R
 
     def _factory(input_event: UserMessageInput) -> AgentRequest:
         intent = parse_user_intent(input_event.text)
+        payload = agent_payload_from_user_input(input_event.text, input_event.openai_user_content)
         return AgentRequest(
             request_id="cli-1",
             user_id=user_id,
             channel=channel,
-            payload=input_event.text,
+            payload=payload,
             intent=intent,
+            stream=input_event.stream,
         )
 
     return _factory
@@ -37,12 +40,14 @@ def session_request_factory(*, user_id: str, channel: str) -> RequestFactory:
 
     def _factory(input_event: UserMessageInput) -> AgentRequest:
         intent = parse_user_intent(input_event.text)
+        payload = agent_payload_from_user_input(input_event.text, input_event.openai_user_content)
         return AgentRequest(
             request_id=str(uuid4()),
             user_id=user_id,
             channel=channel,
-            payload=input_event.text,
+            payload=payload,
             intent=intent,
+            stream=input_event.stream,
         )
 
     return _factory

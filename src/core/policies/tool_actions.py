@@ -27,7 +27,7 @@ class ToolDeps:
     session_manager: SessionManager
     assembly: AssemblyModule
     tools: ToolModule
-    tool_to_device_request: Callable[[ToolCall], DeviceRequest | None]
+    sanitize_tool_result: Callable[[Session, ToolResult], ToolResult] | None = None
 
 
 def step_error(*, request_id: str, session: Session, context: Any, error: str, reason: str) -> OutputStep:
@@ -93,6 +93,8 @@ def step_execute_tool(*, deps: ToolDeps, tc: ToolContext) -> OutputStep:
         new_message(role="assistant", content=assistant_content_openai_v1(tc_tool), loop_index=0),
     )
     tool_result = deps.tools.execute(tc.session, tc_tool)
+    if deps.sanitize_tool_result is not None:
+        tool_result = deps.sanitize_tool_result(tc.session, tool_result)
     deps.session_manager.append_message(
         tc.session.session_id,
         new_message(

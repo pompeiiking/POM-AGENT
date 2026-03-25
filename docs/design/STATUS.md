@@ -1,6 +1,6 @@
-﻿## Pompeii-Agent 当前状态（快照）
+## Pompeii-Agent 当前状态（快照）
 
-**发布线**：`0.4.16`（见 `src/app/version.py`）
+**发布线**：`0.4.59`（见 `src/app/version.py`）
 
 ### 概览
 - **目标**：以 Python 为起点，构建可长期演进的微内核 Agent 基础设施。
@@ -16,7 +16,7 @@
 - 明确**不**作为近期主线：为对接方单独扩面、堆集成代码而绕过或分叉 core 契约。
 
 ### 已完成（里程碑）
-- **`/summary` 规则摘要**：基于最近 `Context.messages` 列表化输出（不调用 LLM）；条数与单条摘录长度可在 `session_defaults.yaml` → `limits.summary_*` 配置；`GET /health` 返回 `version`（`0.4.16`）；`GET /archives` 列出用户归档摘要（SQLite）；可选 **MCP stdio**；OpenAI **`tool_calls` 解析** + **会话内 assistant/tool 与 call_id 对齐**
+- **`/summary` 规则摘要**：基于最近 `Context.messages` 列表化输出（不调用 LLM）；条数与单条摘录长度可在 `session_defaults.yaml` → `limits.summary_*` 配置；`GET /health` 返回 `version`（与 `version.py` 同步）；`GET /archives` 列出用户归档摘要（SQLite，含可选 `llm_summary_*`）；可选 **MCP stdio**；OpenAI **`tool_calls` 解析** + **会话内 assistant/tool 与 call_id 对齐**
 - **Port 并发**：待确认/待设备字典读写加 `threading.Lock`
 - **会话持久化**：`runtime.yaml` 中 `session_store.backend: sqlite` + `sqlite_path`，统一使用 `infra/SqliteSessionStore`（无独立内存 dict 实现；测试用 `SqliteSessionStore.ephemeral()`）
 - HTTP 复用 `GenericAgentPort`：待确认/待设备按 `(user_id, channel)` 分区；每请求 `HttpEmitter` 经 thread-local 注入
@@ -32,7 +32,7 @@
 > 规则：所有占位实现必须包含 `// STUB(YYYY-MM-DD): 原因 — 替换计划`
 - `src/port/agent_port.py` — `HttpMode`/`WsMode` 仅用于类型与文档（不实现 stdin 循环）；**HTTP 运行时**已复用 `HttpMode`；未来 **WS 服务端**接入时同理在收包处调 `handle()`
 - ~~`src/port/request_factory.py`~~ — `session_request_factory` / `http_request_factory` / `ws_request_factory` 已落地（按会话分区、每条消息独立 `request_id`）
-- `src/modules/model/impl.py` — OpenAI 兼容 Chat 已可用；**响应 `tool_calls` 已解析**；流式输出等仍待扩展（可视为部分 STUB）
+- `src/modules/model/impl.py` — OpenAI 兼容 Chat 已可用；**响应 `tool_calls` 已解析**；**SSE 流式**（`params.stream` + 入站 `stream`、无 `params.tools`）已接入；**原生 Chat 流式 HTTP 响应体**（如 chunked SSE 直出）仍可选扩展
 - `src/modules/tools/impl.py` — 本地工具 + 可选 MCP stdio 桥接；设备执行器仍待替换
 - `src/modules/assembly/impl.py` — P1：`formatting`、单条字符预算、**近似总量 token 预算**（`assembly_approx_context_tokens`）；**接入 tiktoken 或 LLM 摘要仍属可选增强**
 
@@ -55,12 +55,12 @@
 | 设计概念（ver0.4） | 含义摘要 | 当前代码现状 |
 |-------------------|----------|--------------|
 | **信息缓存** | 会话内 `messages` 等热数据 | 有：`infra/SqliteSessionStore`（文件或 `:memory:` 临时库） |
-| **长期存储** | 归档会话、画像、摘要；引擎可 SQLite/PG 等 | **部分**：`SqliteSessionStore` 在会话 **`ARCHIVED`** 时写入 **`session_archives`**（规则摘要 + 元数据）；画像/向量等仍未实现 |
-| **向量 / 检索** | 归档文本摘要 + 向量嵌入、混合检索/GraphRAG | **无** |
-| **资源区 / 资源访问守门** | 关卡⑤：读写分级、高敏感经核心审批等 | **未实现**（仅有内核侧工具策略雏形） |
+| **长期存储** | 归档会话、画像、摘要；引擎可 SQLite/PG 等 | **部分**：`SqliteSessionStore` 在会话 **`ARCHIVED`** 时写入 **`session_archives`**（规则摘要 + 元数据）；**长期记忆双库**（`memory_items` + FTS + 向量投影）已由 `MemoryOrchestrator` 落地；用户画像 / GraphRAG 等仍未实现 |
+| **向量 / 检索** | 归档文本摘要 + 向量嵌入、混合检索/GraphRAG | **部分**：同库 SQLite 向量表 + 余弦 + RRF；嵌入默认 `builtin:hash`，可选 **`builtin:openai_compatible`**（`/v1/embeddings`）；专用向量引擎 / HNSW / GraphRAG 仍为后续项 |
+| **资源区 / 资源访问守门** | 关卡⑤：读写分级、高敏感经核心审批等 | **部分**：`resource_access.yaml` + `KNOWN_RESOURCE_IDS` 配置校验 + 长期记忆 + **`multimodal_image_url`**（与 `http_url_guard` 联动）；**无**通用资源目录、高敏「审批」流仍待扩展 |
 | **platform_layer** | 在本仓库中主要承担**静态配置与资源路径** | **仅有** `resources/config/*.yaml` 等；**不是**设计里的「数据部」全套实现 |
 
-结论：**会话持久化 + 归档摘要表（SQLite）已部分落地**；**画像 / 向量 / 资源守门**仍未实现；`platform_layer` 仍以**配置与文件布局**为主。
+结论：**会话持久化 + 归档摘要 + 长期记忆双库（含可选 OpenAI 兼容嵌入）已部分落地**；**画像 / 资源守门 / 独立向量服务**仍为后续；`platform_layer` 仍以**配置与文件布局**为主。
 
 **建议落地顺序（与功能绑定，不必一次做完）**：
 
@@ -77,12 +77,12 @@
 |------|------|------|------|
 | P0 | 系统内 | 会话 SQLite | **已落地**（唯一 `backend: sqlite`）；生产并发可再加锁/连接策略 |
 | P1 | 系统内 | Assembly 摘要/压缩 | **已落地**：规则摘要、`assembly_message_max_chars`、**`assembly_approx_context_tokens` 启发式总量裁剪**；可选 **tiktoken / LLM 摘要** |
-| P2 | 系统内 | 工具部与设备抽象 | 本地工具 + **`DeviceToolBackend`**；**stdio MCP** 已够用则不必先上 SSE/HTTP |
-| P3 | 系统内 | 归档 + 长期记忆表 | **已落地**：`SqliteSessionStore`（文件或 `ephemeral()`）在 `ARCHIVED` 时写入归档摘要；`GET /archives`、**/archive**；**LLM 异步摘要**仍待接 |
+| P2 | 系统内 | 工具部与设备抽象 | 本地工具 + **`DeviceToolBackend`**；**stdio MCP** 已够用则不必先上 SSE/HTTP；**关卡④-a**：`tools.network_policy`（deny 名单 + MCP 白名单，`resource_validation` 与 kernel allowlist 对齐） |
+| P3 | 系统内 | 归档 + 长期记忆表 | **已落地**：规则摘要 + **可选 kernel `archive_llm_summary_*` 异步 LLM 摘要**（`session_archives.llm_*`）；`GET /archives`、**/archive**；长期记忆 Orchestrator 另线 |
 | P4 | 系统内 | Session 管理策略化 | **部分落地**：`append_message_inplace` 统一追加与统计；状态机/策略对象可再迭代 |
 | P5 | 外部对接 | MCP 传输扩展 | SSE/HTTP 传输、多租户隔离——**在 P1–P4 无阻塞需求时**再排 |
 | P6 | 系统内 → 运维 | Port 多 worker | 待确认/待设备外置或共享存储；与部署形态绑定 |
-| P7 | 视需求 | 向量检索 | 依赖 P3 与知识库场景 |
+| P7 | 视需求 | 向量检索增强 | 主线已有 SQLite 向量 + RRF；HNSW、远程向量库、GraphRAG 视场景再排 |
 
 ### 目录结构备注
 - 根目录（概览）：`README.md`、`Dockerfile`、`requirements*.txt`、`pyproject.toml`、`docs/`（`guides/` 运维、`design/` 设计与变更日志）；密钥仅本机 `env.ps1` / 环境变量，**不**随仓库提供模板目录
@@ -92,6 +92,11 @@
 - `src/modules`：assembly/model/tools 模块实现
 - `src/platform_layer`：长期配置与静态资源
 - `src/infra`：后续预留的外部基础设施实现
+
+
+
+
+
 
 
 

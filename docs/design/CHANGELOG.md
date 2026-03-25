@@ -1,5 +1,382 @@
 ## CHANGELOG
 
+### Release 0.4.59（2026-03-23）
+
+**版本号**：`0.4.59`。
+
+- **Delegate 白名单**：`kernel_config.delegate_target_allowlist`（可选；空表示不限制）。非空时 `/delegate` 的 target 须命中列表，否则 `reason=delegate_target_denied` 且不写入会话、不发出 `DelegateEvent`。加载器校验 token 与 intent 规则一致。
+
+---
+
+### Release 0.4.58（2026-03-23）
+
+**版本号**：`0.4.58`。
+
+- **Delegate 契约（架构 ver0.4 多 Agent）**：`UserIntent.SystemDelegate`；解析 `/delegate <target> <payload>`（`target` 为 `[a-zA-Z0-9_.-]+`）。`AgentResponse` 增加 `delegate_target` / `delegate_payload` 与 `reason=delegate`。`GenericAgentPort` 在 `reply` 之前 `emit(DelegateEvent)`；CLI 输出目标与截断 payload。`/help` 文档已更新。
+
+---
+
+### Release 0.4.57（2026-03-23）
+
+**版本号**：`0.4.57`。
+
+- **关卡④-c 工具结果注入规则（顺序推进）**：`security_policies.baseline` 默认启用 `tool_output_injection_patterns`，拦截伪造关卡② `pompeii` 分区 HTML 注释边界。`AgentCoreImpl._sanitize_tool_result_for_guard` 对 dict/list 工具输出使用与组装序列化一致的 **JSON 文本视图**做截断、注入子串与 `guard_block` 扫描，以便匹配仅出现在 JSON 双引号形态下的危险片段。
+
+---
+
+### Release 0.4.56（2026-03-23）
+
+**版本号**：`0.4.56`。
+
+- **架构 ver0.4 §6.4 ④-c 来源标签（主线）**：`AssemblyModuleImpl.apply_tool_result` 在启用 `context_isolation_enabled` 时，用关卡② `tool_result` 分区包裹 `Context.current`；`trust`/`source` 由 `ToolResult.source` 推导。`tool_first` 策略在模型部先剥除外层分区再解析 `tool name -> payload`。
+
+---
+
+### Release 0.4.55（2026-03-23）
+
+**版本号**：`0.4.55`。
+
+- **关卡⑤ 配置校验**：`core.resource_access.KNOWN_RESOURCE_IDS`；`validate_resource_configs` 拒绝 `resource_access.yaml` 中未登记的资源键（防拼写错误导致策略不生效）。
+
+---
+
+### Release 0.4.54（2026-03-23）
+
+**版本号**：`0.4.54`。
+
+- **多模态 image_url 基线 SSRF**：`http_url_guard.multimodal_image_url_host_baseline_violation` 拒绝 `localhost` 及私网/环回等字面 IP（与工具侧 `_blocked_ip_literal` 一致）；`apply_user_parts_preprocessing` 在**未**启用 `http_url_guard` 白名单时亦执行，公网字面 IP（如 `8.8.8.8`）与普通域名仍放行。
+
+---
+
+### Release 0.4.53（2026-03-23）
+
+**版本号**：`0.4.53`。
+
+- **关卡⑤ `multimodal_image_url`**：`resource_access.yaml` 资源 `multimodal_image_url`（read 控制 user 多模态图是否进模型载荷）。`AssemblyModuleImpl` 将 `tools.network_policy` 的 `http_url_guard_*` 注入 `Context.meta`，`apply_user_parts_preprocessing` 对 `image_url` 做基线校验（仅 http(s)、禁 userinfo、须有 host）及可选白名单（与 `http_url_guard` 一致）；拒绝时替换为文本占位。当前轮多模态改由 **会话尾部 user `Message`** 经 `openai_user_message_payload` 生成 API 内容（不再依赖 `meta.openai_user_message_content`）。`composition` 单次加载 `tools.yaml` 供组装部与工具部共用。
+
+---
+
+### Release 0.4.52（2026-03-23）
+
+**版本号**：`0.4.52`。
+
+- **组装部 OpenAI user content 契约**：`modules.assembly.openai_user_content` 提供 `openai_user_message_payload`（user → `str | list` OpenAI content）与 `apply_user_parts_preprocessing`（MVP 透传，预留 §3.1 预处理）。`_render_history_messages_for_model_plain` 经此出口渲染 user 历史/文本，模型部不再直接依赖 `message_to_openai_user_blocks`。
+
+---
+
+### Release 0.4.51（2026-03-23）
+
+**版本号**：`0.4.51`。
+
+- **多模态 user 历史回放**：`_render_history_messages_for_model_plain` 对非末尾的 `Part(image_url)` user 消息输出 `content` 块数组（与 API 一致）；`_isolate_history_plain_messages` 对其中 `type=text` 块套 `history_user` 关卡②；`_drop_trailing_user_if_matches_current` 遇 list 形 content 不再误做字符串去重。
+
+---
+
+### Release 0.4.50（2026-03-23）
+
+**版本号**：`0.4.50`。
+
+- **多模态用户输入（MVP，OpenAI Chat 块）**：`AgentRequest.payload` 可为 `{ "openai_user_content": [ { "type":"text",...}, { "type":"image_url", "image_url": { "url": "..." } } ], "text": "可选说明" }`；`UserMessageInput.openai_user_content`；HTTP `POST /input` 字段 `openai_user_content`。会话以 `Part(type=image_url)` 持久化；`run_openai_compatible_chat_impl` 由会话 user `Message` 生成 `messages[].content` 为块数组（历史尾部多模态 user 从 history 渲染中剔除以免重复）。关卡① 对载荷使用 `flatten_payload_for_security`。MVP 多模态轮不应用 `user_prompt_profiles`。
+
+---
+
+### Release 0.4.49（2026-03-23）
+
+**版本号**：`0.4.49`。
+
+- **可插拔系统提示词策略（entrypoint）**：`kernel.prompt_strategy_ref`（默认 `builtin:none`）与可选 `params.prompt_strategy_ref`（按 provider 覆盖）。在 YAML 模板与 `<active_skills>` 合并（及 `PromptCache`）之后调用 `modules.model.prompt_strategy_registry.run_prompt_strategy`；插件组 **`pompeii_agent.prompt_strategies`**，签名为 `(system_prompt, provider, session, context, skill_registry) -> str | None`（`None` 表示保持原样）。`ModelModuleImpl` 经 `prompt_strategy_context` 注入默认 ref。`resource_validation` 校验 ref 形态。
+
+---
+
+### Release 0.4.48（2026-03-23）
+
+**版本号**：`0.4.48`。
+
+- **模型调用滑动窗口限流（简易计量）**：`infra.model_provider_rate_limit` 按 `provider.id` 维护时间戳队列；`params.model_rate_max_calls_per_window`（>0 启用）、`params.model_rate_window_seconds`（默认 60）。在 `run_openai_compatible_chat_impl` 中于熔断检查之后、组装载荷之前执行，避免无谓计算。超限文案含「调用过于频繁」，已纳入 `openai_failure` 以支持 `failover_chain`。`clear_model_provider_rate_limit_state()` 供测试。
+
+---
+
+### Release 0.4.47（2026-03-23）
+
+**版本号**：`0.4.47`。
+
+- **模型 provider 简易熔断**：`infra.model_provider_circuit` 按 `provider.id` 统计连续失败（与 `openai_failure.openai_output_suggests_failover` 一致）；`params.model_circuit_failure_threshold`（>0 启用）、`params.model_circuit_open_seconds`（默认 60）。`run_openai_compatible_chat_impl` 在调用前 `precheck`、返回前 `record`。熔断文案含「熔断中」，纳入 failover 启发式以便 `failover_chain` 可换备用。`clear_model_provider_circuit_state()` 供测试重置。
+
+---
+
+### Release 0.4.46（2026-03-23）
+
+**版本号**：`0.4.46`。
+
+- **OpenAI 兼容：流式 + tools（可选）**：`params.stream_with_tools: true` 且 `params.stream: true`、入站流式开启时，即使配置了 `params.tools` 也走 SSE；`openai_stream_accumulate.OpenAiChatStreamCollector` 合并 `delta.tool_calls` 后走既有 `openai_message_to_model_output`。未开启时行为与此前一致（有 tools 则非流式）。
+
+---
+
+### Release 0.4.45（2026-03-23）
+
+**版本号**：`0.4.45`。
+
+- **模型部 HTTP 连接复用**：`infra.model_http_client_pool` 按 `(base_url, timeout)` 复用 `httpx.Client`（LRU 上限 48）；`run_openai_compatible_chat_impl` 非流式与 SSE 流式均经 `_chat_http_client`；可选 **`params.http_disable_connection_pool: true`** 恢复每次新建 Client。顺带修正原先非流式在 `with httpx.Client` 退出后再 `raise_for_status`/`json()` 的边界。
+
+---
+
+### Release 0.4.44（2026-03-23）
+
+**版本号**：`0.4.44`。
+
+- **Port 交互模式 registry（继续开发矩阵）**：`runtime.yaml` 可选 `port.interaction_mode_ref`（默认 `builtin:cli`）；`app.port_mode_registry` 支持 `builtin:cli|http|ws` 与 `entrypoint:<name>`（**`pompeii_agent.interaction_modes`**，工厂 `() -> InteractionMode`）。`cli_runtime.main` 从 runtime 解析模式；`resource_validation` 校验 ref 形态。HTTP 路由仍直接使用 `GenericAgentPort.handle`（`builtin:http` 供对称与测试）。
+
+---
+
+### Release 0.4.43（2026-03-23）
+
+**版本号**：`0.4.43`。
+
+- **模型主备 Failover（设计 3.2 / 缺口）**：`model_providers.yaml` 各 provider 可选 `failover_chain: [id, ...]`（须指向已定义 id，且不得包含自身）。主为 `openai_compatible` 时，对网络/密钥/空响应等**可判定失败**的文本结果按序尝试链上 provider（可含 `stub` 作最后降级）；仅展开**一层**链，不递归备用上的 `failover_chain`。`merge_prompt_config_into_registry` 保留 `failover_chain`。
+
+---
+
+### Release 0.4.42（2026-03-23）
+
+**版本号**：`0.4.42`。
+
+- **Skill entrypoint（设计 4.2 / 继续开发矩阵）**：`skills.yaml` 支持 `enable_entrypoints`、`entrypoint_group`（默认 `pompeii_agent.skills`）；`merge_skill_registry_with_entrypoints` 合并 setuptools 技能，**YAML 覆盖同名插件**；`composition` 与 `resource_validation` 使用合并结果。
+- **策略引擎 entrypoint**：`kernel_config` 增加 `tool_policy_engine_ref`、`loop_policy_engine_ref`（默认 `builtin:default`）；`app.tool_policy_registry` / `app.loop_policy_registry` 支持 `entrypoint:<name>`，组分别为 **`pompeii_agent.tool_policies`**、**`pompeii_agent.loop_policies`**；`AgentCoreImpl` 注入可替换的 `decide` 与 `LoopGovernance` 计算。
+
+---
+
+### Release 0.4.41（2026-03-23）
+
+**版本号**：`0.4.41`。
+
+- **关卡④-a（设计对照）**：`tools.network_policy.http_blocked_content_type_prefixes`；`http_get` 在读取 body 前按响应 `Content-Type` 主类型前缀拦截；成功结果标记 `ToolResult.source=http_fetch`。
+- **关卡④-b/c（设计对照）**：`security_policies` 增加 `http_fetch_tool_output_trust`（与 `tool_output_max_chars_by_trust` 联用）、`tool_output_injection_patterns` / `tool_output_injection_redaction`（工具结果串在截断后、入口 `guard_block_patterns` 之前做子串匹配并整段替换）。
+
+---
+
+### Release 0.4.40（2026-03-23）
+
+**版本号**：`0.4.40`。
+
+- **内置 `http_get` 工具（可选启用）**：`tools.local_handlers` 中声明 `http_get: "modules.tools.builtin_handlers:http_get_tool"` 时，由 `composition._build_tools` 绑定为 `make_http_get_handler(network_policy)`。GET、不跟随重定向、响应体与预览长度上限可配；请求前执行 `enforce_http_url_policy`。默认 `tools.yaml` 未注册，须自行加入 `kernel.tool_allowlist` 与会话技能。
+
+---
+
+### Release 0.4.39（2026-03-23）
+
+**版本号**：`0.4.39`。
+
+- **关卡④-a HTTP URL 校验（可复用库）**：`tools.network_policy` 可选 `http_url_guard_enabled`、`http_url_allowed_hosts`；`modules.tools.http_url_guard` 提供 `enforce_http_url_policy` / `assert_safe_http_tool_url`（仅 http(s)、禁 userinfo、字面 IP 防 SSRF、域名依赖白名单）。供后续 HTTP 类工具在发请求前调用；默认关闭。
+
+---
+
+### Release 0.4.38（2026-03-23）
+
+**版本号**：`0.4.38`。
+
+- **关卡④-a 网络策略（MVP）**：`tools.yaml` 可选 `network_policy`（`enabled`、`deny_tool_names`、`mcp_allowlist_enforced`、`mcp_tool_allowlist`）。`ToolModuleImpl.execute` 在启用时拦截黑名单工具；在启用 MCP 白名单时仅允许名单内工具经 `McpToolBridge.try_call`。`validate_resource_configs` 要求 `mcp_tool_allowlist`  ⊆ `kernel.tool_allowlist`。配置类型见 `modules.tools.network_policy`。
+
+---
+
+### Release 0.4.37（2026-03-23）
+
+**版本号**：`0.4.37`。
+
+- **§7.3 单次窗口三级压缩（MVP）**：在 `assembly_approx_context_tokens` 超限时，依次尝试（1）截短 `openai_v1` **tool** 正文（`limits.assembly_compress_tool_max_chars`，0=跳过）、（2）自前向后折叠相邻纯文本 **user+assistant** 为一轮（`assembly_compress_early_turn_chars`，0=跳过）、（3）沿用既有自新向旧 **丢消息** 裁剪。会话默认值仍为 0/0，行为与此前仅第三级一致；LLM `model.summarize` 与异步归档留待后续。
+
+---
+
+### Release 0.4.36（2026-03-23）
+
+**版本号**：`0.4.36`。
+
+- **关卡② 上下文隔离（架构 ver0.4 §6.2 / §3.1）**：以 HTML 注释形态 `pompeii:zone-begin/end` 标记 **system**（`prompt_config` / `high`）、**memory**（长期记忆块 / `medium`）、会话 **history**（`history_user|assistant|tool`）及当前轮 **user** / **tool_result**（工具回注时按 `last_tool.source` 映射 trust）。`kernel.context_isolation_enabled`（默认 `true`）经 `AssemblyModuleImpl` 写入 `Context.meta`，OpenAI 兼容聊天路径在**去重尾部 user 之后**再套包装，避免破坏 `_drop_trailing_user_if_matches_current`。
+
+---
+
+### Release 0.4.35（2026-03-23）
+
+**版本号**：`0.4.35`。
+
+- **AssemblyModule 显式注入**：`build_core(..., assembly=AssemblyModule | None)`；传入非空时跳过默认 `AssemblyModuleImpl`（自定义实现须自行处理记忆块、预算等与默认等价职责）；`None` 时行为与此前一致。
+
+---
+
+### Release 0.4.34（2026-03-23）
+
+**版本号**：`0.4.34`。
+
+- **MCP 桥可插拔（设计 P2）**：`mcp_servers.yaml` 可选 `bridge_ref`（默认 `builtin:stdio`；或 `entrypoint:<name>`）。新增 `app.mcp_bridge_registry.resolve_mcp_bridge`，entry point 组 **`pompeii_agent.mcp_bridges`**，工厂签名 `(McpRuntimeConfig, src_root: Path) -> McpToolBridge | None`；`composition._load_mcp_bridge` 经 registry 解析。
+- **配置**：`McpRuntimeConfig.bridge_ref`；加载器校验 ref 格式。
+
+---
+
+### Release 0.4.33（2026-03-23）
+
+**版本号**：`0.4.33`。
+
+- **关卡④ 设备回传信任档**：`security_policies` 可选 `device_tool_output_trust`（默认 `low`）；`GenericAgentPort` 接受设备回传时构造的 `ToolResult` 带 `source="device"`，净化层与 MCP 一样仅在 `tool_output_max_chars_by_trust` 非空时按档合并截断上限。
+
+---
+
+### Release 0.4.32（2026-03-23）
+
+**版本号**：`0.4.32`。
+
+- **关卡④ 信任分级截断**：`security_policies` 可选 `tool_output_max_chars_by_trust`（`low` / `medium` / `high` → 非负整数，**0 表示该等级不额外限制**）、`default_tool_output_trust`、`tool_output_trust_overrides`、`mcp_tool_output_trust`；**仅当 `tool_output_max_chars_by_trust` 非空时启用**，与全局/按工具上限合并为 `min`（一侧为 0 则只受另一侧约束）。
+- **MCP**：`McpStdioBridge` 返回的 `ToolResult` 带 `source="mcp"`，净化层按 `mcp_tool_output_trust` 选档。
+- **类型**：`ToolResult` 增加可选字段 `source`（约定 `"mcp"` 表示经 MCP）。
+
+---
+
+### Release 0.4.31（2026-03-23）
+
+**版本号**：`0.4.31`。
+
+- **关卡④ 按工具截断**：`security_policies` 每条策略可选 `tool_output_max_chars_overrides`（`工具名 -> 非负整数`）；命中键时优先于全局 `tool_output_max_chars`，**值为 0 表示该工具不截断**；未列出的工具仍用全局值。
+
+---
+
+### Release 0.4.30（2026-03-23）
+
+**版本号**：`0.4.30`。
+
+- **关卡④（MVP）工具结果截断**：`security_policies` 每条策略可选 `tool_output_max_chars`（非负整数，**0 表示不截断**）与 `tool_output_truncation_marker`；在写入会话前对工具 `output` 先截断，**再**执行既有 `guard_enabled` 模式/守卫检测（截断后命中则整段替换为 `guard_tool_output_redaction`）。
+- **实现**：`SecurityPolicySpec` + `security_policy_loader`；`AgentCoreImpl._sanitize_tool_result_for_guard`；单测覆盖仅截断与截断后守卫。
+
+---
+
+### Release 0.4.29（2026-03-23）
+
+**版本号**：`0.4.29`。
+
+- **P0 长期记忆双线语义封顶**：`memory_policy.enabled=true` 时 `storage_profiles.memory.store_ref` 必须为 **`builtin:noop`**（`resource_validation`），避免旧版 `LongTermMemoryStore` 与 `DualMemoryStore` 争用同一 `memory.path`；仓库默认 `storage_profiles.yaml` 已改为 `builtin:noop`。
+- **文档/注释**：`LongTermMemoryStore` 与 `memory_store_registry` 标明为冻结旧线（composition 不注入）；`长期记忆定义.md`、继续开发手册 P0 同步。
+
+---
+
+### Release 0.4.28（2026-03-23）
+
+**版本号**：`0.4.28`。
+
+- **OpenAI 兼容流式输出**：`model_providers` 可选 `params.stream: true`；与 `AgentRequest.stream`（HTTP `InputDTO.stream` → `UserMessageInput.stream`）同时为真且无 `params.tools` 时，使用 SSE 消费增量并通过 `core.model_stream_context` 回调；Port 发出 `StreamDeltaEvent`，最终仍合并为完整 `ReplyEvent`。
+- **API**：`AgentCore.handle` / `handle_confirmation_approved` / `handle_device_result` 增加可选关键字参数 `stream_delta`。
+- **实现**：`modules/model/openai_sse.py`（SSE 行解析）、`modules/model/impl._post_openai_chat_stream`。
+
+---
+
+### Release 0.4.27（2026-03-23）
+
+**版本号**：`0.4.27`。
+
+- **关卡⑤ 资源访问（MVP）**：新增 `resource_access.yaml` 与 `resource_index.active_resource_access_profile`；`ResourceAccessEvaluator` 按资源 `long_term_memory` 的 `read`/`write`（`allow`|`deny`）裁决。
+- **接入点**：组装部长期记忆上下文注入（读）、`/remember` 与 `/forget`（写）、归档晋升写入长期记忆（写，禁止时跳过晋升）、工具 `search_memory`（读）。
+- **校验**：`resource_validation` 要求所选 profile 存在于 `resource_access.profiles`。
+
+---
+
+### Release 0.4.26（2026-03-23）
+
+**版本号**：`0.4.26`。
+
+- **归档异步 LLM 摘要**：`kernel_config.yaml` 可选 `archive_llm_summary_enabled` 等字段；`/archive` 后 daemon 线程调用所选 `openai_compatible`（或 `stub`）provider 生成摘要，写入 `session_archives.llm_summary_text` / `llm_summary_status`（`pending` → `done` / `failed` / `skipped`）；`GET /archives` 列表含新字段。
+- **实现**：`modules/model/archive_dialogue_summary.py`；`core/archive_llm_summary.py` 注入绑定；`SqliteSessionStore` 启动时迁移新增列；`build_dialogue_plain_for_archive` 抽至 `session_archive.py` 供 Orchestrator 复用。
+- **校验**：`archive_llm_summary_enabled` 时要求解析出的 provider 存在于 `model_providers`。
+
+---
+
+### Release 0.4.25（2026-03-23）
+
+**版本号**：`0.4.25`。
+
+- **OpenAI 兼容嵌入 builtin**：`embedding_ref: builtin:openai_compatible` 调用 `/v1/embeddings`；密钥仅经 `memory_policy.embedding_openai.api_key_env` 所指环境变量（缺省块内字段与 `default_openai_compatible_embedding_params()` 一致）。
+- **配置**：`memory_policy.yaml` 可选 `embedding_openai`（`api_key_env` / `base_url` / `model` / `timeout_seconds`）；`resolve_embedding_provider(..., policy=…)` 传入完整策略；entry point `pompeii_agent.embedding_providers` 工厂签名为 `(embedding_dim, policy | None) -> EmbeddingProvider`。
+- **实现**：`infra/openai_compatible_embedding_provider.py`（`httpx`）；测试用可注入 `http_client`。
+
+---
+
+### 文档（2026-03-24）
+
+- **继续开发手册**：新增 `docs/guides/继续开发手册.md`，汇总插拔设计完成度矩阵、主装配配置地图、entry points 速查、已知缺口（含 `LongTermMemoryStore` 与 `memory_store_ref` 未接线）及 P0–P3 Backlog；`docs/README.md`、`design/INDEX.md` 增加入口链接。
+
+---
+
+### Release 0.4.24（2026-03-23）
+
+**版本号**：`0.4.24`。
+
+- **长期记忆热插拔与会话存储对称**：新增 `app/memory_orchestrator_registry.py`（`resolve_dual_memory_store` / `resolve_embedding_provider`）；`memory_policy.yaml` 增加 `dual_store_ref`、`embedding_ref`（默认 `builtin:dual_sqlite` / `builtin:hash`）；`composition._try_build_memory_orchestrator` 仅通过注册表解析，不再硬编码具体实现类。
+- **Entry point 组**：`pompeii_agent.memory_dual_stores`（`factory(Path) -> DualMemoryStore`）、`pompeii_agent.embedding_providers`（自 0.4.25 起 `factory(int, MemoryPolicyConfig | None) -> EmbeddingProvider`）；测试见 `tests/test_memory_orchestrator_registry.py`。
+
+---
+
+### Release 0.4.23（2026-03-23）
+
+**版本号**：`0.4.23`。
+
+- **长期记忆 P0–P3 工程落地**：`memory_policy.yaml` + `MemoryOrchestrator`；标准库表 `memory_items`、FTS5 `memory_fts`、向量表 `memory_vectors` 同库（`storage_profiles.memory.path`）；写入顺序为先标准库再向量投影；检索为 FTS + 余弦向量 + RRF 融合 + 可选 lexical rerank。
+- **会话链路**：`AssemblyModuleImpl` 在 `build_initial_context` 调用 `retrieve_for_context`，经 `Context.memory_context_block` 注入模型 OpenAI 兼容路径的第二条 system；`/remember`、`/forget` 意图；归档在 `promote_on_archive` 为真时晋升长期记忆。
+- **工具**：`composition` 注册 `search_memory`（`kernel.tool_allowlist` 已加入）；`resource_validation` 加载校验 `memory_policy.yaml`；测试夹具与 `tests/test_memory_dual_store_integration.py` 覆盖写入/检索/遗忘/归档晋升。
+
+---
+
+### Release 0.4.22（2026-03-23）
+
+**版本号**：`0.4.22`。
+
+- **长期记忆边界澄清**：文档明确向量库/向量检索尚未搭建；会话域 → 长期记忆的管理编排**未设计、未在核心路径实现**。
+- **移除误实现**：删除 `LongTermMemoryBridge` / `MemoryPromotionPolicy` 及 `AgentCore` 归档后自动写入长期记忆、组装中注入桥接的逻辑；保留 `LongTermMemoryStore` 协议与 `memory_store_registry`（及 SQLite 示例子串实现）供后续设计落地后接线。
+- **设计文档**：新增 `docs/design/会话与双库长期记忆架构设计.md`（标准库与向量库职责、会话内 S0–S7 调用逻辑、Orchestrator 写序与检索融合）；`长期记忆定义.md` 增加交叉引用。
+
+---
+
+### Release 0.4.21（2026-03-23）
+
+**版本号**：`0.4.21`。
+
+- **去兼容化清理**：移除模型层 legacy 回退路径（`_run_legacy`、`provider.params.system_prompt` 兜底、`deepseek` 默认 API key 回退、`prompt_profiles` 字符串旧形态、`tool_result_render` 字符串简写兼容），统一仅接受新规范配置。
+- **规则升级**：`airules` 全局铁律新增“禁止保留旧接口/旧格式兼容分支”，明确工程落地后不得长期保留中间态兼容代码。
+
+---
+
+### Release 0.4.20（2026-03-23）
+
+**版本号**：`0.4.20`。
+
+- **Skill Registry 落地**：新增 `skills.yaml` 与 `skill_registry_loader`，技能项包含 `id/index/title/summary/content/quality_tier/enabled/tags`，实现“定义清晰、索引明确、质量分级”的技能注册框架。
+- **技能运行注入**：模型层在 system prompt 渲染后按 `session.skills` 注入 `active_skills` 区块，技能内容由注册表驱动；未知技能在启动校验阶段拦截。
+- **Prompt Cache 落地**：新增 `infra/prompt_cache.py`（TTL + LRU），用于系统提示词合并结果缓存，降低重复渲染开销。
+- **资源校验增强**：`resource_validation` 新增 `skills.yaml` 校验与 `session.skills` 交叉一致性校验。
+
+---
+
+### Release 0.4.19（2026-03-23）
+
+**版本号**：`0.4.19`。
+
+- **资源区收敛（提示词解耦）**：新增 `prompts.yaml`，将 `model_providers.yaml` 中提示词与回流策略字段拆分到独立 PromptRegistry（按 provider id 合并注入），实现“模型连接参数”与“提示词策略参数”分仓。
+- **统一加载与校验**：新增 `prompt_config_loader` 并接入 `composition/resource_validation`，启动时完成 providers+prompts 合并与一致性校验（禁止未知 provider 注入）。
+
+---
+
+### Release 0.4.18（2026-03-23）
+
+**版本号**：`0.4.18`。
+
+- **工具插件自动发现**：`tools.yaml` 新增 `enable_entrypoints` 与 `entrypoint_group`，支持从 Python entry_points 自动发现并注册工具（显式配置同名优先覆盖）。
+- **统一资源校验中心**：新增 `resource_validation`，在 `build_core` 启动阶段统一校验 `model/session/kernel/runtime/tools/mcp` 配置并做跨配置一致性检查（如 `tool_confirmation_required ⊆ tool_allowlist`、本地工具与设备路由名冲突检测）。
+
+---
+
+### Release 0.4.17（2026-03-23）
+
+**版本号**：`0.4.17`。
+
+- **工具架构（最终版解耦）**：移除 core 与 tools 中的工具名硬编码路径。新增 `tools.yaml` 声明式注册（`local_handlers` + `device_routes`），`ToolModuleImpl` 通过动态加载 handler 与配置路由工作；core 改为调用 `ToolModule.resolve_device_request()`，不再依赖固定 `take_photo` 路由函数。
+- **热插拔能力**：新增 `tool_registry_loader` 与 `load_tool_handler("module:function")`，新增工具可通过配置注册而无需修改核心编排源码。
+
+---
+
 ### Release 0.4.16（2026-03-23）
 
 **版本号**：`0.4.16`。

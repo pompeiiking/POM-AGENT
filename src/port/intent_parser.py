@@ -4,10 +4,15 @@ Port 边界唯一解析：将用户原始输入解析为结构化 UserIntent。
 """
 from __future__ import annotations
 
+import re
+
 from core.user_intent import (
     Chat,
     SystemArchive,
+    SystemDelegate,
+    SystemForget,
     SystemHelp,
+    SystemRemember,
     SystemSummary,
     ToolAdd,
     ToolEcho,
@@ -15,6 +20,8 @@ from core.user_intent import (
     ToolTakePhoto,
     UserIntent,
 )
+
+_DELEGATE_TARGET = re.compile(r"^[a-zA-Z0-9_.-]+$")
 
 
 def parse_user_intent(raw: str) -> UserIntent:
@@ -28,6 +35,22 @@ def parse_user_intent(raw: str) -> UserIntent:
         return SystemSummary()
     if stripped == "/archive":
         return SystemArchive()
+    if stripped.startswith("/remember "):
+        body = stripped[len("/remember ") :].strip()
+        if body:
+            return SystemRemember(text=body)
+    if stripped.startswith("/forget "):
+        body = stripped[len("/forget ") :].strip()
+        if body:
+            return SystemForget(phrase=body)
+    if stripped.startswith("/delegate"):
+        rest = stripped[len("/delegate") :].strip()
+        if rest:
+            head, sep, tail = rest.partition(" ")
+            target = head.strip()
+            payload = tail.strip() if sep else ""
+            if target and _DELEGATE_TARGET.fullmatch(target):
+                return SystemDelegate(target=target, payload=payload)
     if stripped.startswith("/tool echo "):
         return ToolEcho(text=stripped[len("/tool echo ") :].strip())
     if stripped == "/tool take_photo":

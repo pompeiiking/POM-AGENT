@@ -1,6 +1,6 @@
 ﻿# Pompeii-Agent
 
-**当前版本**：`0.4.16`（见 `src/app/version.py`；HTTP `GET /health` 返回 `version` 字段）
+**当前版本**：`0.4.21`（见 `src/app/version.py`；HTTP `GET /health` 返回 `version` 字段）
 
 Pompeii-Agent 是一个面向长期演进的 **微内核 Agent 基础设施**项目：用清晰分层与严格依赖方向，把「运行时入口 / 端口边界 / 内核编排 / 模块处理 / 平台能力」解耦，便于后续扩展 HTTP/WS、真实模型、MCP、长期存储与安全策略。
 
@@ -116,6 +116,15 @@ src/
 - 仅允许在该 YAML 中声明 **`command` / `args` / `env`**，勿将用户输入拼入进程参数；生产选型请优先 [MCP Registry](https://modelcontextprotocol.io/registry) 与已审计清单。
 - 仓库自带演示：`infra/mcp_demo_server.py`（工具名 `ping`、`add`），需在 `kernel_config.yaml` 的 `tool_allowlist` 中放行（默认已包含演示名）。
 
+### 工具注册配置（ToolRegistry）
+
+文件：`src/platform_layer/resources/config/tools.yaml`
+
+- **`tools.local_handlers`**：本地工具注册表（`tool_name -> "module.path:function_name"`），启动时动态加载。
+- **`tools.device_routes`**：设备工具路由声明（`tool/device/command/fixed_parameters`），命中后走 device_request 流程。
+- **`tools.enable_entrypoints` / `tools.entrypoint_group`**：启用 Python entry_points 自动发现，支持安装插件包后自动注册工具（显式配置同名优先）。
+- 通过该文件可新增或替换本地/设备工具，无需修改 core 编排代码；`ToolModuleImpl` 仅负责按注册结果分发执行。
+
 ### 模型配置（ModelRegistry）
 
 文件：`src/platform_layer/resources/config/model_providers.yaml`
@@ -124,14 +133,27 @@ src/
 - **`providers.<id>`**：每个 **id** 即工程内可引用的提供方名称；`session_defaults.yaml` 里的 **`session.model`** 填这里的 id，即可切换不同 API/模型。
 - **`backend`**：`stub`（占位）或 `openai_compatible`（以及兼容的 `deepseek` 别名），统一走 OpenAI Chat Completions 协议。
 - **`params.api_key_env`**：声明该 provider 使用的 **环境变量名**（不要在文件里写 Key）；未设置 `api_key_env` 的 legacy `deepseek` backend 仍默认读 `DEEPSEEK_API_KEY`。
-- **`params.prompt_profiles`**：按 `profile -> strategy` 配置 system prompt 模板；由会话级 `session.prompt_profile` + `session.prompt_strategy` 选择（并兼容旧字符串格式）。
-- **`params.prompt_vars` / `params.prompt_vars_env`**：对 `prompt_profiles` 模板进行变量注入（静态值 + 环境变量），实现统一参数化管理。
-- **`params.user_prompt_profiles`**：按 `profile -> strategy` 配置 user prompt 包装模板，用于将 `{user_input}` 以结构化形式注入到 `user` 消息。
-- **`params.user_input_max_chars`**：用户输入注入模板前的字符上限（`0` 为不限制），用于长输入稳定化。
-- **`params.tool_result_render`**：工具结果回流轮次的直出格式（`raw` / `short` / `short_with_reason`），可按 strategy 配置。
-- **`params.tool_first_tools`**：`tool_first` 策略触发白名单（可按 strategy 配置）；未配置时默认所有工具均可触发。
-- **加载期校验**：`model_providers.yaml` 中上述提示词字段在启动时做结构校验；配置错误会直接抛出加载异常，避免运行期静默失败。
+- 仅承载 provider 连接参数（`backend/base_url/model/api_key_env/max_history/timeout`）。
+- 提示词与回流策略字段已迁移至 `prompts.yaml`（启动时按 provider id 合并注入）。
 - 由 `load_model_registry` 加载，在 `composition.build_core` / `http_runtime` 中注入 `ModelModuleImpl`。
+
+### 提示词配置（PromptRegistry）
+
+文件：`src/platform_layer/resources/config/prompts.yaml`
+
+- **`prompts.providers.<id>.prompt_profiles`**：system prompt 分层模板（`profile -> strategy`）。
+- **`prompts.providers.<id>.prompt_vars` / `prompt_vars_env`**：system 模板变量注入。
+- **`prompts.providers.<id>.user_prompt_profiles`**：user 模板包裹（注入 `{user_input}`）。
+- **`prompts.providers.<id>.user_input_max_chars`**：用户输入注入前限长。
+- **`prompts.providers.<id>.tool_result_render` / `tool_first_tools`**：工具回流渲染与触发范围。
+
+### 技能注册配置（SkillRegistry）
+
+文件：`src/platform_layer/resources/config/skills.yaml`
+
+- **`skills.items[]`**：技能定义条目，包含 `id/index/title/summary/content/quality_tier/enabled/tags`。
+- 会话的 `session.skills` 按 id 引用技能；模型层会把命中的技能内容注入 `system prompt` 的 `active_skills` 区块。
+- 启动阶段做一致性校验：`session.skills` 中的 id 必须在 `skills.yaml` 中存在。
 
 本地环境变量（勿提交到 Git）：
 
@@ -143,6 +165,7 @@ src/
 - `app/http_runtime.py`：HTTP 对接入口（把请求映射为 PortInput，返回 PortEvent 列表）
 - `app/cli_runtime.py`：CLI 入口（本地交互调试）
 - `app/composition.py`：装配依赖图谱（core + modules + store + provider）
+- `app/config_loaders/resource_validation.py`：统一资源区校验入口（启动阶段校验 model/session/kernel/runtime/tools/mcp）
 - `port/agent_port.py`：把 raw 输入适配为 `AgentRequest`，调用 core，再把 `AgentResponse` 翻译为 `PortEvent` 并 `emit`
 - `core/agent_core.py`：微内核 loop 编排（text/tool_call）
 
@@ -172,6 +195,11 @@ pytest
 - 所有规则在：`docs/design/ai-rules-template/RULES.md`
 - 占位实现必须按 STUB 规范标注：`// STUB(YYYY-MM-DD): 原因 — 替换计划`
 - 每次变更必须追加记录到：`docs/design/CHANGELOG.md`（无记录视为未发生）
+
+
+
+
+
 
 
 

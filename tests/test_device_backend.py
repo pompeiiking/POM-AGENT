@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from core.session.session import Session, SessionConfig, SessionLimits, SessionStats, SessionStatus
-from core.types import ToolCall, ToolResult
-from modules.tools.device_backend import DeviceToolBackend
+from core.types import DeviceRequest, ToolCall, ToolResult
 from modules.tools.impl import ToolModuleImpl
 
 
@@ -20,17 +19,23 @@ def _sess() -> Session:
     )
 
 
-class _Stub(DeviceToolBackend):
-    def try_local(self, session: Session, tool_call: ToolCall) -> ToolResult | None:
-        _ = session
-        if tool_call.name == "echo":
-            return ToolResult(name="echo", output={"from": "stub"})
-        return None
+def _echo_handler(session: Session, tool_call: ToolCall) -> ToolResult:
+    _ = (session, tool_call)
+    return ToolResult(name="echo", output={"from": "local"})
 
 
-def test_device_backend_short_circuits_before_local_handlers() -> None:
-    tools = ToolModuleImpl(device_backend=_Stub())
+def test_resolve_device_request_from_registered_route() -> None:
+    tools = ToolModuleImpl(
+        local_handlers={"echo": _echo_handler},
+        device_routes={"take_photo": DeviceRequest(device="camera", command="take_photo", parameters={"quality": "low"})},
+    )
     sess = _sess()
-    tc = ToolCall(name="echo", arguments={"text": "x"}, call_id="c1")
-    r = tools.execute(sess, tc)
-    assert r.output == {"from": "stub"}
+    tc = ToolCall(name="take_photo", arguments={"quality": "high"}, call_id="c1")
+    req = tools.resolve_device_request(tc)
+    assert req is not None
+    assert req.device == "camera"
+    assert req.command == "take_photo"
+    assert req.parameters == {"quality": "high"}
+
+    r = tools.execute(sess, ToolCall(name="echo", arguments={"text": "x"}, call_id="c2"))
+    assert r.output == {"from": "local"}

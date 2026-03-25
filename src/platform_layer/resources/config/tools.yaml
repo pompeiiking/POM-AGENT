@@ -1,0 +1,30 @@
+tools:
+  # 关卡④-a 网络策略（MVP）：见 modules.tools.impl / modules.tools.network_policy
+  # network_policy:
+  #   enabled: true
+  #   deny_tool_names: []          # 显式拒绝的工具名（执行前即拦截）
+  #   mcp_allowlist_enforced: true
+  #   mcp_tool_allowlist: ["ping", "add"]  # 须 ⊆ kernel_config.tool_allowlist
+  #   http_url_guard_enabled: false   # 为 true 时：工具走 enforce_http_url_policy；**用户多模态 image_url** 亦在 assembly.openai_user_content 中按同白名单校验（关卡⑤ multimodal_image_url read 须为 allow）
+  #   http_url_allowed_hosts: []      # 域名须匹配（精确或 *.suffix）；字面 IP 仅允许公网单播
+  #   http_blocked_content_type_prefixes: []  # 非空时 http_get 按响应 Content-Type 主类型前缀拦截（如 application/octet-stream）
+  # 是否启用 Python entry_points 自动发现（group 下的插件将自动注册）
+  enable_entrypoints: true
+  entrypoint_group: "pompeii_agent.tools"
+
+  # 本地工具：仅声明注册，不改核心源码
+  # 格式：tool_name: "module.path:function_name"
+  # 可选 HTTP GET（须同时加入 kernel.tool_allowlist / 会话 skills）：
+  # http_get: "modules.tools.builtin_handlers:http_get_tool"
+  # → composition 会绑定为带 network_policy 的闭包；启用 http_url_guard 时配 http_url_allowed_hosts
+  local_handlers:
+    echo: "modules.tools.builtin_handlers:echo_handler"
+    calc: "modules.tools.builtin_handlers:calc_handler"
+    now: "modules.tools.builtin_handlers:now_handler"
+
+  # 设备工具路由：命中后走 core 的 device_request 流程
+  device_routes:
+    - tool: "take_photo"
+      device: "camera"
+      command: "take_photo"
+      fixed_parameters: {}

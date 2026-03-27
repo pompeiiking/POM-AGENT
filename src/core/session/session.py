@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 #Part
 @dataclass(frozen=True)
@@ -27,6 +27,44 @@ class SessionStatus(str, Enum):
     ARCHIVED = "archived"
     DESTROYED = "destroyed"
 
+# ── Session 状态机：合法转换表 ──
+# ACTIVE  → IDLE（超时）、ARCHIVED（用户归档）、DESTROYED（管理清理）
+# IDLE    → ACTIVE（新消息激活）、ARCHIVED（归档闲置会话）、DESTROYED（管理清理）
+# ARCHIVED→ DESTROYED（最终清理）
+# DESTROYED 为终态，不可转出
+_VALID_TRANSITIONS: frozenset[tuple[SessionStatus, SessionStatus]] = frozenset({
+    (SessionStatus.ACTIVE, SessionStatus.IDLE),
+    (SessionStatus.ACTIVE, SessionStatus.ARCHIVED),
+    (SessionStatus.ACTIVE, SessionStatus.DESTROYED),
+    (SessionStatus.IDLE, SessionStatus.ACTIVE),
+    (SessionStatus.IDLE, SessionStatus.ARCHIVED),
+    (SessionStatus.IDLE, SessionStatus.DESTROYED),
+    (SessionStatus.ARCHIVED, SessionStatus.DESTROYED),
+})
+
+
+class InvalidSessionTransition(Exception):
+    """会话状态转换不合法时抛出。"""
+
+    def __init__(self, session_id: str, current: SessionStatus, target: SessionStatus) -> None:
+        self.session_id = session_id
+        self.current = current
+        self.target = target
+        super().__init__(
+            f"invalid session transition: {current.value!r} → {target.value!r} "
+            f"(session_id={session_id!r})"
+        )
+
+
+def validate_session_transition(
+    session_id: str, current: SessionStatus, target: SessionStatus,
+) -> None:
+    """校验状态转换合法性；同状态视为无操作不报错。"""
+    if current == target:
+        return
+    if (current, target) not in _VALID_TRANSITIONS:
+        raise InvalidSessionTransition(session_id, current, target)
+
 #SessionLimits
 @dataclass
 class SessionLimits:
@@ -47,6 +85,9 @@ class SessionLimits:
     assembly_compress_tool_max_chars: int = 0
     # §7.3 第二级：将早期相邻纯文本 user+assistant 折叠为一轮时的总字符上限；0 表示不启用该级
     assembly_compress_early_turn_chars: int = 0
+    # 组装部 token 计数：heuristic=len/4；tiktoken=按 encoding 精确计数（需安装 tiktoken）
+    assembly_token_counter: Literal["heuristic", "tiktoken"] = "heuristic"
+    assembly_tiktoken_encoding: str = "cl100k_base"
 
 @dataclass
 class SessionConfig:

@@ -43,6 +43,8 @@ def load_memory_policy(source: MemoryPolicySource) -> MemoryPolicyConfig:
         dual_store_ref=_opt_str(root, "dual_store_ref", default=DEFAULT_DUAL_STORE_REF),
         embedding_ref=_opt_str(root, "embedding_ref", default=DEFAULT_EMBEDDING_REF),
         embedding_openai=_load_embedding_openai(root),
+        remote_retrieval_url=_opt_str(root, "remote_retrieval_url", default=""),
+        remote_timeout_seconds=_opt_positive_float(root, "remote_timeout_seconds", default=5.0),
     )
 
 

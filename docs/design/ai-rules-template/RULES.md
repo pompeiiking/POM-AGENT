@@ -107,8 +107,8 @@ TEMPLATE_STATUS: INITIALIZED:Pompeii-Agent
 | `CHANGELOG.md` | 纯变更日志：谁在何时改了什么 | 每次变更后**追加** |
 | `README.md` | 项目简介、快速启动 | 里程碑时更新 |
 | `contracts/` 目录 | 模块间接口契约：类型、签名、事件、约束 | 仅人类开发者编写和变更，AI更新状态字段 |
-| `docs/design/架构设计ver0.4.md` | 架构图纸与设计依据 | 里程碑/重大决策时更新 |
-| `docs/design/开发状态与系统接口.md`、`架构设计ver0.4.md` | 结构、接口与调用关系（对照代码） | 架构调整后更新 |
+| `docs/design/架构设计ver0.5.md`（ver0.6） | 架构图纸、接口清单、记忆子系统（单一架构参考源） | 里程碑/重大决策时更新 |
+| `docs/design/archive/架构设计ver0.4.md` | 原始五关卡全文（ver0.6 继承） | 归档参考 |
 
 ```
 不在此清单中的文档文件不允许创建。

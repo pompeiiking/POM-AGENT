@@ -22,7 +22,7 @@ from .context_isolation import (
 from .formatting import format_model_output_for_reply, intent_type_name, serialize_tool_output_for_current
 from .interface import AssemblyModule
 from .message_clip import clip_message_for_context
-from .token_budget import apply_three_tier_token_budget
+from .token_budget import apply_three_tier_token_budget, make_message_token_counter
 from .types import Context
 from modules.tools.network_policy import ToolNetworkPolicyConfig
 
@@ -155,11 +155,13 @@ def _apply_assembly_message_budget(session: Session, messages: Sequence[Message]
 
 def _apply_assembly_token_budget(session: Session, messages: Sequence[Message]) -> Sequence[Message]:
     lim = session.config.limits
+    counter = make_message_token_counter(lim.assembly_token_counter, lim.assembly_tiktoken_encoding)
     return apply_three_tier_token_budget(
         list(messages),
         lim.assembly_approx_context_tokens,
         compress_tool_max_chars=lim.assembly_compress_tool_max_chars,
         compress_early_turn_chars=lim.assembly_compress_early_turn_chars,
+        count_tokens=counter,
     )
 
 

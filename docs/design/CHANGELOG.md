@@ -1,5 +1,254 @@
 ## CHANGELOG
 
+### Docs consistency check fix（2026-03-27）
+
+**版本号**：`0.5.0`。
+
+- **链接与版本对齐**：
+  - `README.md`：`ver0.4` 链接改为 `docs/design/archive/架构设计ver0.4.md`，修复归档后断链风险。
+  - `docs/design/架构设计ver0.5.md`、`docs/guides/继续开发手册.md`：内部 `ver0.4` 引用统一改为 `archive/架构设计ver0.4.md`。
+  - `docs/design/ai-rules-template/RULES.md`：在人类授权下，将封闭清单中的 `ver0.4` 路径同步为 `docs/design/archive/架构设计ver0.4.md`。
+  - `.cursor/rules/pompeii-protocol-skills-docs.mdc`：同步 `ver0.4` 引用路径到 `docs/design/archive/架构设计ver0.4.md`，避免规则镜像与主规则漂移。
+  - `docs/design/架构设计ver0.5.md`：版本快照从历史 `0.4.61` 更新为当前 `0.5.0`。
+  - `docs/guides/系统测试流程.md`、`docs/guides/API密钥配置操作手册.md`：文档内“当前版本”从 `0.4.21` 同步为 `0.5.0`。
+
+---
+
+### Release 0.5.0（2026-03-27）
+
+**版本号**：`0.5.0`。
+
+- **里程碑定位**：从 `0.4.x` 的持续迭代升级为 `0.5` 主版本线，标记“微内核主链 + 外部对接 MVP + 配置/契约/测试体系”进入稳定发布阶段。
+- **主系统完成度**：
+  - Core/Assembly/Model/Tools/Port 主链闭环稳定；
+  - 会话状态机、长期记忆双库（含 CRUD/reindex/GC）与预算治理可用；
+  - 结构化日志与 `request_id` 全链路完成。
+- **外部对接 MVP**：
+  - HTTP `/input` + `WS /ws`；
+  - MCP `builtin:stdio` + `builtin:http_json`（含可选流式 SSE 字段映射）；
+  - `pending_state_backend=sqlite_shared` 支持多 worker 场景下待确认/待设备共享状态；
+  - 远端检索 `remote_retrieval_url` 融合与资源守门/审批语义联动。
+- **工程化**：
+  - `pyproject`/`MANIFEST`/可安装包（`pip install -e .`）；
+  - `contracts/` 契约索引与 Port 边界文档；
+  - 当前测试基线保持全量通过（见本次会话回归记录）。
+
+---
+
+### Docs sweep & cleanup（2026-03-27）
+
+**版本号**：`0.5.0`。
+
+- **文档更新**：
+  - `docs/design/架构设计ver0.5.md`：同步 `WS /ws` 接口、`PolicyNoticeEvent`、P2/P4/P5 的 MVP 落地描述（MCP HTTP 桥、pending sqlite_shared、remote_retrieval 融合）。
+  - `README.md`：`/input` 事件说明补充 `policy_notice`。
+  - `contracts/kernel_port_boundary.md`：Port 出向事件清单包含 `policy_notice`。
+- **冗余文件清理**：删除仓库内 `src/` 与 `tests/` 下全部 `__pycache__/*.pyc` 缓存文件（不影响源码与测试）。
+
+---
+
+### External Phase 6 contract sync（2026-03-27）
+
+**版本号**：`0.4.74`。
+
+- `contracts/kernel_port_boundary.md` 同步 Port 出向事件清单，补充 `policy_notice` 在对接契约中的可见性，避免网关仅凭 changelog 反推事件类型。
+
+---
+
+### External Phase 6 policy notice（2026-03-27）
+
+**版本号**：`0.4.73`。
+
+- **Port 事件扩展**：新增 `PolicyNoticeEvent(kind=\"policy_notice\")`，用于表达“策略允许路径中的审批/治理提示”，避免仅依赖回复文本承载策略信息。
+- **AgentResponse -> PortEvent 映射**：当 `reason=resource_approval_required` 且为 reply 路径时，Port 先发 `policy_notice` 再发 `reply`。
+- **CLI 渲染**：新增 `[POLICY] <policy>: <detail>` 输出格式。
+- **测试**：新增 `tests/test_policy_notice_event.py`，覆盖审批 reason 的事件序列。
+
+---
+
+### External Phase 6 approval progression（2026-03-27）
+
+**版本号**：`0.4.72`。
+
+- **remote_retrieval 审批语义推进**：
+  - `MemoryOrchestrator` 在 `remote_retrieval/read` 为 `requires_approval` 时，不触发远端 HTTP 请求；
+  - 返回策略提示片段（`memory_id=policy:remote_retrieval_approval_required`）用于上层可观测反馈，避免静默跳过。
+- **检索流程健壮性**：`retrieve_for_context` 不再因“本地候选为空”提前返回，从而允许远端检索（或审批提示）独立生效。
+- **测试**：`tests/test_memory_remote_retrieval.py` 新增审批用例并覆盖上述行为。
+
+---
+
+### External Phase 6 gate alignment（2026-03-27）
+
+**版本号**：`0.4.71`。
+
+- **远端检索守门联动**：
+  - 新增资源键 `remote_retrieval`（`core/resource_access.py`，纳入 `KNOWN_RESOURCE_IDS`）。
+  - `MemoryOrchestrator` 支持注入 `ResourceAccessEvaluator`，在远端检索前校验 `remote_retrieval/read`，被拒绝则跳过 HTTP 调用。
+  - `composition._try_build_memory_orchestrator` 注入当前激活的资源访问评估器。
+  - `resource_access.yaml` 默认与 `memory_readonly` profile 增加 `remote_retrieval` 规则。
+- **测试**：`tests/test_memory_remote_retrieval.py` 增加资源门 deny 用例，确保拒绝时不触发远端 HTTP。
+
+---
+
+### External Phase 6 stream mapping（2026-03-27）
+
+**版本号**：`0.4.70`。
+
+- **MCP HTTP 流式字段映射可配置**：
+  - `McpHttpServerEntry` 新增 `sse_event_type_key` / `sse_delta_key` / `sse_text_key` / `sse_output_key` / `sse_result_event_value`。
+  - `mcp_http_bridge` 流式解析不再写死 `type/delta/text/output/result`，可通过 `mcp_servers.yaml` 为不同网关映射字段。
+- **配置校验**：`mcp_config_loader` 对上述字段做非空字符串校验。
+- **测试**：
+  - `tests/test_mcp_http_bridge.py` 新增 `test_mcp_http_bridge_stream_custom_mapping`；
+  - 新增 `tests/test_mcp_config_loader_http_stream_fields.py`。
+
+---
+
+### External Phase 6 extension（2026-03-27）
+
+**版本号**：`0.4.69`。
+
+- **MCP HTTP 桥升级（流式）**：
+  - `McpHttpServerEntry` 新增 `stream_enabled` 与 `stream_endpoint_path`。
+  - `infra/mcp_http_bridge.py` 新增 SSE 解析路径：支持 `data: {"type":"delta","delta":"..."}` 与 `data: {"type":"result","output":...}`，并处理 `[DONE]`。
+  - 流式无 `result` 时自动拼接 delta 为 `{ "text": "..." }`；失败回退 JSON 模式保持兼容。
+- **配置与示例**：`mcp_servers.yaml` 增加流式字段注释示例。
+- **测试**：`tests/test_mcp_http_bridge.py` 新增流式 delta 聚合与 result 事件用例。
+
+---
+
+### External Phase 6 completion（2026-03-27）
+
+**版本号**：`0.4.68`。
+
+- **G10 WebSocket 服务化（MVP）**：`app/http_runtime.py` 新增 `WS /ws`，每条入站 JSON 与 `/input` 同构并回传 `events[]`。
+- **G11 MCP HTTP 传输（MVP）**：
+  - `infra/mcp_config_loader.py` 支持 `bridge_ref: builtin:http_json` 与 `http_servers`（`base_url/api_key_env/timeout_seconds`）。
+  - 新增 `infra/mcp_http_bridge.py`，按 `POST {base_url}/tools/call` 调用网关。
+  - `app/mcp_bridge_registry.py` 支持 `builtin:http_json`。
+- **G12 多 worker 待确认/待设备外置（MVP）**：
+  - `port/agent_port.py` 增加 `pending_state_sqlite_path`，可将待确认/待设备状态持久到共享 SQLite。
+  - `runtime_config_loader.py` 新增 `port.pending_state_backend`（`memory|sqlite_shared`）与 `pending_state_sqlite_path`。
+  - `http_runtime.py` 按 `runtime.yaml` 自动启用共享 pending 存储。
+- **G13 远端检索融合（MVP）**：
+  - `memory_policy` 新增 `remote_retrieval_url` / `remote_timeout_seconds`。
+  - `MemoryOrchestrator.retrieve_for_context` 可融合远端检索候选（用于独立向量服务接入）。
+- **G14 资源审批门（MVP）**：
+  - `resource_access` 规则新增 `read_requires_approval` / `write_requires_approval`。
+  - `ResourceAccessEvaluator.requires_approval()` 与 Core 记忆 CRUD 路径联动，返回 `reason=resource_approval_required`。
+- **测试**：新增 `test_http_runtime_ws.py`、`test_mcp_http_bridge.py`、`test_port_pending_sqlite.py`、`test_memory_remote_retrieval.py`、`test_resource_approval_gate.py`。
+
+---
+
+### External Phase 6（2026-03-27）
+
+**版本号**：`0.4.67`。
+
+- **WebSocket 运行时（G10）**：`app/http_runtime.py` 新增 `WS /ws`，入站 JSON 与 `POST /input` 的 `InputDTO` 同构（`kind/user_id/channel/text/payload/openai_user_content/stream`），每条消息回传 `{"events":[...]}`，底层复用同一 `GenericAgentPort` 与会话分区语义。
+- **输入处理复用**：抽出 `_handle_dto(dto)`，HTTP 与 WS 共用验证与 Port 调用路径，避免双份分支漂移。
+- **测试**：新增 `tests/test_http_runtime_ws.py`（WS roundtrip + payload 类型校验）。
+- **文档**：`README.md` 增加 `WS /ws` 入口；`STATUS.md` 的 STUB 备注同步为“WS 收包已落地，独立网关后续”。
+
+---
+
+### Packaging Phase 5 completion（2026-03-27）
+
+**版本号**：`0.4.66`。
+
+- **程序化配置门面补齐**：
+  - `app/config_loaders/session_config_loader.py` 新增 `load_session_config_from_mapping(config_data)`，与文件加载路径等价。
+  - `app/config_provider.py` 新增 `in_memory_mapping_config_provider(config_mapping)`，宿主可从内存 dict 构造 `ConfigProvider`，降低对整棵 `platform_layer` 目录复制依赖。
+- **示例联动**：`examples/minimal_kernel.py` 使用内存映射 provider 路径演示一次最小 `build_core` + `handle`。
+- **测试**：新增 `tests/test_config_provider.py`（mapping loader / provider / 非法结构）；全量 `pytest` 通过。
+- **继续开发手册**：`docs/guides/继续开发手册.md` 中 P1 三项（可安装包、程序化配置门面、最小示例）标记为已落地。
+
+---
+
+### Packaging & contracts Phase 5（2026-03-27）
+
+**版本号**：`0.4.65`。
+
+- **`pyproject.toml`**：补充 `[build-system]`、`[project]`（`pompeii-agent`、动态 `version` ← `app.version.__version__`、依赖与 `requires-python>=3.11`）、`setuptools` 包发现（`package-dir` = `src`）、`include-package-data`；保留 `[tool.pytest.ini_options]`。
+- **`MANIFEST.in`**：`graft src/platform_layer/resources`，保证 wheel/sdist 含静态 YAML。
+- **`examples/minimal_kernel.py`**：装配 `build_core` + 会话强制 `model=stub`，单条 `Chat` 请求；无 Key 可跑通。
+- **`contracts/`**：`README.md`（索引与 CONTRACT_STATUS）、`kernel_port_boundary.md`（AgentRequest/AgentResponse/Reason 摘要表）。
+- **`docs/design/INDEX.md`**、`README.md`：契约入口与 `pip install -e .` / 示例说明。
+
+---
+
+### Observability Phase 4.1（2026-03-27）
+
+**版本号**：`0.4.64`。
+
+- **request_id 全链路**：`infra/request_context.py` 使用 `contextvars` 绑定 `request_id` / `user_id` / `channel`；`GenericAgentPort.handle` 在正常请求、非法输入、确认流、设备结果流中 `bind`/`reset`。
+- **结构化日志**：`infra/logging_config.py` 链式 `setLogRecordFactory`，在每条 `LogRecord` 上注入 `request_id` / `user_id` / `channel`（无上下文时为 `-`）；`setup_structured_logging()` 为 root 配置含上述字段的单行 Formatter。`http_runtime` / `cli_runtime` 启动时调用；`tests/conftest.py` 与 `agent_core` / `agent_port` 侧向导入保证测试与库路径一致。
+- **观测点**：`AgentCoreImpl._handle`、`run_openai_compatible_chat_impl` 增加 **DEBUG** 级日志（避免测试刷屏）。
+- **测试**：`tests/test_request_logging_context.py`。
+
+---
+
+### Assembly Phase 3.1（2026-03-27）
+
+**版本号**：`0.4.63`。
+
+- **可选 tiktoken 组装 token 计数**：`SessionLimits` 增加 `assembly_token_counter`（`heuristic` | `tiktoken`）、`assembly_tiktoken_encoding`（默认 `cl100k_base`）。`session_defaults.yaml` 与 `session_config_loader` / `session_json_codec` 已贯通；`modules/assembly/token_budget.py` 提供 `make_message_token_counter` 与可注入的 `count_tokens`，`AssemblyModuleImpl` 按会话配置选用。**未安装 tiktoken 且配置为 tiktoken 时**记录 warning 并回退 len/4。
+- **依赖**：`requirements.txt` 增加 `tiktoken>=0.5.0`。
+- **测试**：`test_token_budget.py`、`test_session_json_codec.py` 覆盖 heuristic/tiktoken 与 JSON 往返。
+
+---
+
+### Memory Phase 2.2–2.3（2026-03-27）
+
+**版本号**：`0.4.62`。
+
+- **Phase 2.2 测试补齐**：新增 `tests/test_fact_crud.py`，覆盖 `/fact` 意图解析（add/get/list/delete）与 `MemoryOrchestrator` 事实 CRUD（含前缀匹配、用户隔离）。
+- **Phase 2.3 重索引与 tombstone GC**：
+  - `core/memory/ports.py`：`StandardMemoryRepository` 增加 `list_active_memory_ids_for_user`、`purge_tombstoned_rows`。
+  - `infra/sqlite_dual_memory_store.py`：实现 `purge_tombstoned_rows`（物理删除 `tombstone=1` 主表行；向量与 FTS 已在 tombstone 时清理）。
+  - `core/memory/orchestrator.py`：`reindex_memory_id`、`reindex_user_memories`（嵌入模型变更后重建向量投影）、`purge_tombstoned_rows`（运维回收主表空间）。
+  - 新增 `tests/test_memory_reindex_gc.py`。
+
+---
+
+### 工具链（2026-03-27）
+
+- **Cursor 规则库**：将 `docs/design/ai-rules-template/RULES.md` 要点部署为 `.cursor/rules/pompeii-iron-rules.mdc`（八条铁律 + L1/L2/L3）与 `.cursor/rules/pompeii-protocol-skills-docs.mdc`（接入协议、Skill 索引、任务组合、文档封闭清单）。`alwaysApply: true`，权威仍以 `RULES.md` 为准。
+
+---
+
+### Core Hardening（2026-03-27）
+
+- **Session 状态机**：`session.py` 新增 `_VALID_TRANSITIONS` 转换表、`InvalidSessionTransition` 异常、`validate_session_transition` 校验函数。`SessionManagerImpl.update_status` 在写入存储前校验合法性；`get_or_create_session` 对 IDLE 会话自动重激活为 ACTIVE。28 项状态机单测（`test_session_state_machine.py`）。
+- **ResponseReason 枚举**：`agent_types.py` 新增 `ResponseReason(str, Enum)`，覆盖 17 种终止原因（ok / max_loops / max_tool_calls / repeated_tool_call / tool_policy_denied / confirmation_required / device_request / security_* / resource_access_denied / delegate / delegate_target_denied / unsupported_output_kind / tool_call_missing）。`AgentResponse.reason` 类型由 `str | None` → `ResponseReason | None`；`agent_core.py`、`policies/loop_policy.py`、`policies/tool_actions.py`、`port/agent_port.py` 全量迁移。`ResponseReason` 继承 `str`，向后兼容所有 `==` 比较与序列化。
+
+---
+
+### 文档（2026-03-27）
+
+- **架构设计 ver0.6 文档合并**：将《会话与双库长期记忆架构设计》、《长期记忆定义》、《开发状态与系统接口》三份卫星文档的核心架构内容合入 `架构设计ver0.5.md`（升级为 ver0.6）。新增 §九（长期记忆子系统：双库架构、记录类型、Orchestrator 边界、调用时序、写入顺序、接口化）、§十二（系统接口清单：HTTP/Kernel/Port/Module Protocol 接口总表、配置旋钮、可替换模块与耦合点）。原文档移至 `archive/`。
+- **P0 清理**：为 `HttpMode`/`WsMode`（`port/agent_port.py`）、`approximate_message_tokens`（`modules/assembly/token_budget.py`）补 STUB 标注；删除 `modules/tools/__pycache__/device_backend.cpython-314.pyc` 幽灵文件；修复 STATUS.md 中 `DeviceToolBackend` 失效引用（→ `resolve_device_request`）。
+- **INDEX.md / STATUS.md**：同步更新文档索引与状态快照，移除已合并卫星文档引用。
+- **断链修复**：README.md、RULES.md 文档清单、`继续开发手册.md`、`系统测试流程.md`、`API密钥配置操作手册.md`、`core/memory/__init__.py`、`resource_validation.py` 中对已移动卫星文档的引用全部指向 `架构设计ver0.5.md`（ver0.6）对应章节。
+
+---
+
+### Release 0.4.61（2026-03-25）
+
+**版本号**：`0.4.61`。
+
+- **OpenAI 兼容调用声明式路由**：`modules.model.openai_provider_route` 从 `ModelProvider.params` 解析 `base_url`、`model` / `model_id`（前缀推断内置默认根 URL）、`chat_completions_path`、`extra_headers` 等；`run_openai_compatible_chat_impl` 统一经此出口拼 URL 与载荷。`model_providers.yaml` 顶部补充说明；新增 `tests/test_openai_provider_route.py`。
+
+---
+
+### Release 0.4.60（2026-03-25）
+
+**版本号**：`0.4.60`。
+
+- **架构 ver0.4 §8.1 重复 tool_call**：`_run_loop` 对连续两轮模型输出进行「名称 + 参数 JSON」指纹比对；第二次相同且尚未执行该次工具时返回 `reason=repeated_tool_call`。`tool_call_fingerprint` 键序无关。Port 对应该 reason 发出 `status` + `error`。
+
+---
+
 ### Release 0.4.59（2026-03-23）
 
 **版本号**：`0.4.59`。

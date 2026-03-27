@@ -47,6 +47,8 @@ def load_resource_access_registry(source: ResourceAccessSource) -> ResourceAcces
             rules[rid.strip()] = ResourceAccessRule(
                 read=_req_mode(rnode, "read", pname, rid),
                 write=_req_mode(rnode, "write", pname, rid),
+                read_requires_approval=_opt_bool(rnode, "read_requires_approval", default=False),
+                write_requires_approval=_opt_bool(rnode, "write_requires_approval", default=False),
             )
         out[pname.strip()] = ResourceAccessProfile(rules=rules)
     if not out:
@@ -68,3 +70,12 @@ def _req_mode(parent: Mapping[str, Any], key: str, profile: str, resource: str) 
             f"resource_access.profiles[{profile!r}].resources[{resource!r}].{key} must be allow|deny"
         )
     return v.strip().lower()
+
+
+def _opt_bool(parent: Mapping[str, Any], key: str, *, default: bool) -> bool:
+    v = parent.get(key)
+    if v is None:
+        return default
+    if isinstance(v, bool):
+        return v
+    raise ResourceAccessLoaderError(f"{key} must be boolean when present")

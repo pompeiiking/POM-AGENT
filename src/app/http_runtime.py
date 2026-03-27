@@ -4,19 +4,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 from app.composition import build_core
 from app.version import __version__
+from infra.logging_config import setup_structured_logging
 from app.config_provider import yaml_file_config_provider
 from app.config_loaders.model_provider_loader import ModelProviderSource, load_model_registry
+from app.config_loaders.runtime_config_loader import RuntimeConfigSource, load_runtime_config
 from port.agent_port import GenericAgentPort, HttpMode
 from port.events import ErrorEvent
 from port.http_emitter import HttpEmitter
 from port.input_events import DeviceResultInput, SystemCommandInput, UserMessageInput
 from port.request_factory import cli_request_factory
 
+setup_structured_logging()
 
 @dataclass(frozen=True)
 class InputDTO:
@@ -31,49 +34,7 @@ class InputDTO:
     stream: bool = False
 
 
-app = FastAPI(title=f"Pompeii-Agent (experimental http) v{__version__}")
-
-
-# ============================================================
-# 预先装配一次 Core（会话存储为 SQLite，路径见 runtime.yaml）
-# ============================================================
-_BASE = Path(__file__).resolve().parents[1]  # .../<repo>/src
-_SESSION_CONFIG_PATH = _BASE / "platform_layer" / "resources" / "config" / "session_defaults.yaml"
-_MODEL_REGISTRY = load_model_registry(ModelProviderSource(path=_BASE / "platform_layer" / "resources" / "config" / "model_providers.yaml"))
-_CORE = build_core(
-    config_provider=yaml_file_config_provider(_SESSION_CONFIG_PATH),
-    model_registry=_MODEL_REGISTRY,
-    src_root=_BASE,
-)
-
-# 与 Core 同生命周期复用 Port，使待确认/待设备状态在多次 HTTP 请求间保持（按 user_id+channel 分区）
-_HTTP_PORT = GenericAgentPort(
-    mode=HttpMode(),
-    core=_CORE,
-    request_factory=cli_request_factory(),
-    emitter=HttpEmitter(),
-)
-
-
-@app.get("/health")
-def health() -> dict[str, Any]:
-    return JSONResponse({"ok": True, "version": __version__}, media_type="application/json; charset=utf-8")
-
-
-@app.get("/archives")
-def http_list_archives(
-    user_id: str = Query(..., min_length=1),
-    limit: int = Query(50, ge=1, le=200),
-) -> dict[str, Any]:
-    items = _CORE.list_archives_for_user(user_id, limit=limit)
-    return JSONResponse(
-        {"ok": True, "version": __version__, "user_id": user_id, "archives": items},
-        media_type="application/json; charset=utf-8",
-    )
-
-
-@app.post("/input")
-def handle_input(dto: InputDTO) -> dict[str, Any]:
+def _handle_dto(dto: InputDTO) -> list[dict[str, Any]]:
     emitter = HttpEmitter()
     # user_message 必须带 text 键（可为空字符串）；纯多模态时可 text="" 但须提供 openai_user_content
     if dto.kind == "user_message" and dto.text is None:
@@ -84,7 +45,7 @@ def handle_input(dto: InputDTO) -> dict[str, Any]:
                 reason="validation_missing_text",
             )
         )
-        return JSONResponse({"events": emitter.dump()}, media_type="application/json; charset=utf-8")
+        return emitter.dump()
     if dto.kind == "user_message":
         mm = dto.openai_user_content
         has_mm = bool(mm and len(mm) > 0)
@@ -96,7 +57,7 @@ def handle_input(dto: InputDTO) -> dict[str, Any]:
                     reason="validation_empty_payload",
                 )
             )
-            return JSONResponse({"events": emitter.dump()}, media_type="application/json; charset=utf-8")
+            return emitter.dump()
 
     kind_actions = {
         "user_message": lambda: _HTTP_PORT.handle(
@@ -124,7 +85,98 @@ def handle_input(dto: InputDTO) -> dict[str, Any]:
         ),
     }
     kind_actions[dto.kind]()
-    return JSONResponse({"events": emitter.dump()}, media_type="application/json; charset=utf-8")
+    return emitter.dump()
+
+
+app = FastAPI(title=f"Pompeii-Agent (experimental http) v{__version__}")
+
+
+# ============================================================
+# 预先装配一次 Core（会话存储为 SQLite，路径见 runtime.yaml）
+# ============================================================
+_BASE = Path(__file__).resolve().parents[1]  # .../<repo>/src
+_SESSION_CONFIG_PATH = _BASE / "platform_layer" / "resources" / "config" / "session_defaults.yaml"
+_MODEL_REGISTRY = load_model_registry(ModelProviderSource(path=_BASE / "platform_layer" / "resources" / "config" / "model_providers.yaml"))
+_RUNTIME_CONFIG = load_runtime_config(
+    RuntimeConfigSource(path=_BASE / "platform_layer" / "resources" / "config" / "runtime.yaml")
+)
+_CORE = build_core(
+    config_provider=yaml_file_config_provider(_SESSION_CONFIG_PATH),
+    model_registry=_MODEL_REGISTRY,
+    src_root=_BASE,
+)
+
+# 与 Core 同生命周期复用 Port，使待确认/待设备状态在多次 HTTP 请求间保持（按 user_id+channel 分区）
+_HTTP_PORT = GenericAgentPort(
+    mode=HttpMode(),
+    core=_CORE,
+    request_factory=cli_request_factory(),
+    emitter=HttpEmitter(),
+    pending_state_sqlite_path=(
+        (_BASE / _RUNTIME_CONFIG.pending_state_sqlite_path)
+        if _RUNTIME_CONFIG.pending_state_backend == "sqlite_shared"
+        else None
+    ),
+)
+
+
+@app.get("/health")
+def health() -> dict[str, Any]:
+    return JSONResponse({"ok": True, "version": __version__}, media_type="application/json; charset=utf-8")
+
+
+@app.get("/archives")
+def http_list_archives(
+    user_id: str = Query(..., min_length=1),
+    limit: int = Query(50, ge=1, le=200),
+) -> dict[str, Any]:
+    items = _CORE.list_archives_for_user(user_id, limit=limit)
+    return JSONResponse(
+        {"ok": True, "version": __version__, "user_id": user_id, "archives": items},
+        media_type="application/json; charset=utf-8",
+    )
+
+
+@app.post("/input")
+def handle_input(dto: InputDTO) -> dict[str, Any]:
+    return JSONResponse({"events": _handle_dto(dto)}, media_type="application/json; charset=utf-8")
+
+
+@app.websocket("/ws")
+async def ws_input(websocket: WebSocket) -> None:
+    """
+    WebSocket MVP：每条入站 JSON 与 POST /input 同构（kind/user_id/channel/text/payload/...），
+    每收到一条消息回传一帧 {"events":[...]}。
+    """
+    await websocket.accept()
+    try:
+        while True:
+            payload = await websocket.receive_json()
+            if not isinstance(payload, dict):
+                await websocket.send_json(
+                    {
+                        "events": [
+                            {
+                                "kind": "error",
+                                "message": "ws payload must be a JSON object",
+                                "reason": "validation_ws_payload_type",
+                            }
+                        ]
+                    }
+                )
+                continue
+            dto = InputDTO(
+                kind=str(payload.get("kind", "user_message")),
+                user_id=str(payload.get("user_id", "http-user")),
+                channel=str(payload.get("channel", "http")),
+                text=str(payload["text"]) if payload.get("text") is not None else None,
+                payload=str(payload["payload"]) if payload.get("payload") is not None else None,
+                openai_user_content=payload.get("openai_user_content"),
+                stream=bool(payload.get("stream", False)),
+            )
+            await websocket.send_json({"events": _handle_dto(dto)})
+    except WebSocketDisconnect:
+        return
 
 
 def main() -> None:

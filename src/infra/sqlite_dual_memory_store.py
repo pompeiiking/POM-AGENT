@@ -300,6 +300,141 @@ class SqliteDualMemoryStore:
             )
             return [str(r[0]) for r in cur.fetchall()]
 
+    def purge_tombstoned_rows(self, *, limit: int) -> int:
+        if limit <= 0:
+            return 0
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                SELECT memory_id FROM memory_items
+                WHERE tombstone = 1
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            ids = [str(r[0]) for r in cur.fetchall()]
+            for mid in ids:
+                self._conn.execute("DELETE FROM memory_items WHERE memory_id = ?", (mid,))
+            self._conn.commit()
+        return len(ids)
+
+    def get_preference_row(self, user_id: str, key: str) -> StandardMemoryRow | None:
+        body_prefix = f"{key}="
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                SELECT memory_id, kind, user_id, channel, body_text, trust, embedding_status,
+                       source_session_id, tombstone, meta_json
+                FROM memory_items
+                WHERE user_id = ? AND kind = 'preference' AND tombstone = 0
+                      AND body_text LIKE ?
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (user_id, body_prefix + "%"),
+            )
+            r = cur.fetchone()
+        if r is None:
+            return None
+        return StandardMemoryRow(
+            memory_id=str(r["memory_id"]),
+            kind=str(r["kind"]),
+            user_id=str(r["user_id"]),
+            channel=str(r["channel"]) if r["channel"] is not None else None,
+            body_text=str(r["body_text"]),
+            trust=str(r["trust"]),
+            embedding_status=str(r["embedding_status"]),
+            source_session_id=str(r["source_session_id"]) if r["source_session_id"] is not None else None,
+            tombstone=int(r["tombstone"]),
+            meta_json=str(r["meta_json"]),
+        )
+
+    def list_preference_rows(self, user_id: str, *, limit: int = 100) -> list[StandardMemoryRow]:
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                SELECT memory_id, kind, user_id, channel, body_text, trust, embedding_status,
+                       source_session_id, tombstone, meta_json
+                FROM memory_items
+                WHERE user_id = ? AND kind = 'preference' AND tombstone = 0
+                ORDER BY created_at DESC LIMIT ?
+                """,
+                (user_id, limit),
+            )
+            rows = cur.fetchall()
+        return [
+            StandardMemoryRow(
+                memory_id=str(r["memory_id"]),
+                kind=str(r["kind"]),
+                user_id=str(r["user_id"]),
+                channel=str(r["channel"]) if r["channel"] is not None else None,
+                body_text=str(r["body_text"]),
+                trust=str(r["trust"]),
+                embedding_status=str(r["embedding_status"]),
+                source_session_id=str(r["source_session_id"]) if r["source_session_id"] is not None else None,
+                tombstone=int(r["tombstone"]),
+                meta_json=str(r["meta_json"]),
+            )
+            for r in rows
+        ]
+
+    def get_fact_row(self, user_id: str, statement_prefix: str) -> StandardMemoryRow | None:
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                SELECT memory_id, kind, user_id, channel, body_text, trust, embedding_status,
+                       source_session_id, tombstone, meta_json
+                FROM memory_items
+                WHERE user_id = ? AND kind = 'fact' AND tombstone = 0
+                      AND body_text LIKE ?
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (user_id, statement_prefix + "%"),
+            )
+            r = cur.fetchone()
+        if r is None:
+            return None
+        return StandardMemoryRow(
+            memory_id=str(r["memory_id"]),
+            kind=str(r["kind"]),
+            user_id=str(r["user_id"]),
+            channel=str(r["channel"]) if r["channel"] is not None else None,
+            body_text=str(r["body_text"]),
+            trust=str(r["trust"]),
+            embedding_status=str(r["embedding_status"]),
+            source_session_id=str(r["source_session_id"]) if r["source_session_id"] is not None else None,
+            tombstone=int(r["tombstone"]),
+            meta_json=str(r["meta_json"]),
+        )
+
+    def list_fact_rows(self, user_id: str, *, limit: int = 100) -> list[StandardMemoryRow]:
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                SELECT memory_id, kind, user_id, channel, body_text, trust, embedding_status,
+                       source_session_id, tombstone, meta_json
+                FROM memory_items
+                WHERE user_id = ? AND kind = 'fact' AND tombstone = 0
+                ORDER BY created_at DESC LIMIT ?
+                """,
+                (user_id, limit),
+            )
+            rows = cur.fetchall()
+        return [
+            StandardMemoryRow(
+                memory_id=str(r["memory_id"]),
+                kind=str(r["kind"]),
+                user_id=str(r["user_id"]),
+                channel=str(r["channel"]) if r["channel"] is not None else None,
+                body_text=str(r["body_text"]),
+                trust=str(r["trust"]),
+                embedding_status=str(r["embedding_status"]),
+                source_session_id=str(r["source_session_id"]) if r["source_session_id"] is not None else None,
+                tombstone=int(r["tombstone"]),
+                meta_json=str(r["meta_json"]),
+            )
+            for r in rows
+        ]
+
     def row_matches_channel(self, row: StandardMemoryRow, channel: str | None, *, policy: str) -> bool:
         if policy != "match_or_global":
             return True

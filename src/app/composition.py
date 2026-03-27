@@ -259,7 +259,8 @@ def _try_build_memory_orchestrator(base: Path) -> MemoryOrchestrator | None:
         embedding_dim=policy.embedding_dim,
         policy=policy,
     )
-    return MemoryOrchestrator(store=store, embedding=emb, policy=policy)
+    gate = _load_resource_access_evaluator(base)
+    return MemoryOrchestrator(store=store, embedding=emb, policy=policy, resource_access=gate)
 
 
 def _memory_search_tool_handler(memory_orchestrator: MemoryOrchestrator | None):

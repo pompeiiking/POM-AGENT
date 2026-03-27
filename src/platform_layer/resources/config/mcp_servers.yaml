@@ -8,8 +8,10 @@
 #
 # bridge_ref（可选，默认 builtin:stdio）：
 #   - builtin:stdio — 内置 stdio 多进程客户端
+#   - builtin:http_json — 内置 HTTP 网关桥（POST {base_url}/tools/call）
 #   - entrypoint:<name> — setuptools 组 pompeii_agent.mcp_bridges，工厂 (cfg, src_root) -> McpToolBridge | None
 enabled: true
+bridge_ref: "builtin:stdio"
 servers:
   - id: pompeii-demo
     command: python
@@ -17,3 +19,17 @@ servers:
     env:
       PYTHONPATH: "{src_root}"
     timeout_seconds: 45
+
+# 可选：HTTP MCP 网关（配合 bridge_ref=builtin:http_json）
+# http_servers:
+#   - id: mcp-http-1
+#     base_url: "http://127.0.0.1:8089"
+#     # api_key_env: "MCP_HTTP_API_KEY"
+#     timeout_seconds: 20
+#     # stream_enabled: true
+#     # stream_endpoint_path: "/tools/call/stream"
+#     # sse_event_type_key: "type"
+#     # sse_delta_key: "delta"
+#     # sse_text_key: "text"
+#     # sse_output_key: "output"
+#     # sse_result_event_value: "result"

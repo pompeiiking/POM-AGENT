@@ -1,6 +1,6 @@
 ## Pompeii-Agent 当前状态（快照）
 
-**发布线**：`0.4.59`（见 `src/app/version.py`）
+**发布线**：`0.5.0`（见 `src/app/version.py`）
 
 ### 概览
 - **目标**：以 Python 为起点，构建可长期演进的微内核 Agent 基础设施。
@@ -30,11 +30,11 @@
 
 ### 活跃 STUB 清单（必须持续清理）
 > 规则：所有占位实现必须包含 `// STUB(YYYY-MM-DD): 原因 — 替换计划`
-- `src/port/agent_port.py` — `HttpMode`/`WsMode` 仅用于类型与文档（不实现 stdin 循环）；**HTTP 运行时**已复用 `HttpMode`；未来 **WS 服务端**接入时同理在收包处调 `handle()`
+- `src/port/agent_port.py` — `HttpMode`/`WsMode` 仅用于类型与文档（不实现 stdin 循环）；`app/http_runtime.py` 已提供 **`WS /ws`** 收包并复用 `GenericAgentPort.handle()`；独立 WS 网关形态与多租户仍属后续
 - ~~`src/port/request_factory.py`~~ — `session_request_factory` / `http_request_factory` / `ws_request_factory` 已落地（按会话分区、每条消息独立 `request_id`）
 - `src/modules/model/impl.py` — OpenAI 兼容 Chat 已可用；**响应 `tool_calls` 已解析**；**SSE 流式**（`params.stream` + 入站 `stream`、无 `params.tools`）已接入；**原生 Chat 流式 HTTP 响应体**（如 chunked SSE 直出）仍可选扩展
 - `src/modules/tools/impl.py` — 本地工具 + 可选 MCP stdio 桥接；设备执行器仍待替换
-- `src/modules/assembly/impl.py` — P1：`formatting`、单条字符预算、**近似总量 token 预算**（`assembly_approx_context_tokens`）；**接入 tiktoken 或 LLM 摘要仍属可选增强**
+- `src/modules/assembly/impl.py` — P1：`formatting`、单条字符预算、总量 token 预算（`assembly_approx_context_tokens` + **`assembly_token_counter`：heuristic / tiktoken**）；**LLM 摘要仍属可选增强**
 
 ### 仓库与 STUB 何时完成（建议节奏）
 - **Git 仓库**：在「有可复现的启动方式 + 至少一次 CHANGELOG」后即可 `git init`；不必等 STUB 清空。用分支/标签标记里程碑（如 `milestone-http-e2e`）。
@@ -50,7 +50,7 @@
 
 ### 数据与资源层（设计对照｜尚未按 ver0.4 落地）
 
-`架构设计ver0.4.md` 中与「数据 / 资源」相关的分工大致是：
+`架构设计ver0.4.md` / `架构设计ver0.5.md`（ver0.6）中与「数据 / 资源」相关的分工大致是：
 
 | 设计概念（ver0.4） | 含义摘要 | 当前代码现状 |
 |-------------------|----------|--------------|
@@ -76,13 +76,13 @@
 | 顺序 | 类型 | 任务 | 说明 |
 |------|------|------|------|
 | P0 | 系统内 | 会话 SQLite | **已落地**（唯一 `backend: sqlite`）；生产并发可再加锁/连接策略 |
-| P1 | 系统内 | Assembly 摘要/压缩 | **已落地**：规则摘要、`assembly_message_max_chars`、**`assembly_approx_context_tokens` 启发式总量裁剪**；可选 **tiktoken / LLM 摘要** |
-| P2 | 系统内 | 工具部与设备抽象 | 本地工具 + **`DeviceToolBackend`**；**stdio MCP** 已够用则不必先上 SSE/HTTP；**关卡④-a**：`tools.network_policy`（deny 名单 + MCP 白名单，`resource_validation` 与 kernel allowlist 对齐） |
+| P1 | 系统内 | Assembly 摘要/压缩 | **已落地**：规则摘要、`assembly_message_max_chars`、**`assembly_approx_context_tokens` + 可选 tiktoken（`assembly_token_counter`）**；**LLM 摘要**仍为可选 |
+| P2 | 系统内 | 工具部与设备抽象 | 本地工具 + 设备路由（`resolve_device_request`）；**stdio MCP** 已够用则不必先上 SSE/HTTP；**关卡④-a**：`tools.network_policy`（deny 名单 + MCP 白名单，`resource_validation` 与 kernel allowlist 对齐） |
 | P3 | 系统内 | 归档 + 长期记忆表 | **已落地**：规则摘要 + **可选 kernel `archive_llm_summary_*` 异步 LLM 摘要**（`session_archives.llm_*`）；`GET /archives`、**/archive**；长期记忆 Orchestrator 另线 |
 | P4 | 系统内 | Session 管理策略化 | **部分落地**：`append_message_inplace` 统一追加与统计；状态机/策略对象可再迭代 |
-| P5 | 外部对接 | MCP 传输扩展 | SSE/HTTP 传输、多租户隔离——**在 P1–P4 无阻塞需求时**再排 |
-| P6 | 系统内 → 运维 | Port 多 worker | 待确认/待设备外置或共享存储；与部署形态绑定 |
-| P7 | 视需求 | 向量检索增强 | 主线已有 SQLite 向量 + RRF；HNSW、远程向量库、GraphRAG 视场景再排 |
+| P5 | 外部对接 | MCP 传输扩展 | **已落地 MVP**：`builtin:http_json`（HTTP 网关桥）+ `builtin:stdio` 并存；多租户隔离仍属部署侧 |
+| P6 | 系统内 → 运维 | Port 多 worker | **已落地 MVP**：`runtime.port.pending_state_backend=sqlite_shared` 可共享待确认/待设备状态 |
+| P7 | 视需求 | 向量检索增强 | **已落地 MVP**：`memory_policy.remote_retrieval_url` 可融合远端检索；HNSW/GraphRAG 仍为后续 |
 
 ### 目录结构备注
 - 根目录（概览）：`README.md`、`Dockerfile`、`requirements*.txt`、`pyproject.toml`、`docs/`（`guides/` 运维、`design/` 设计与变更日志）；密钥仅本机 `env.ps1` / 环境变量，**不**随仓库提供模板目录
@@ -92,14 +92,6 @@
 - `src/modules`：assembly/model/tools 模块实现
 - `src/platform_layer`：长期配置与静态资源
 - `src/infra`：后续预留的外部基础设施实现
-
-
-
-
-
-
-
-
 
 
 

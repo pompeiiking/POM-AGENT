@@ -1,21 +1,24 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import uuid
+
+import infra.logging_config  # noqa: F401 — LogRecord 注入 request_id / user_id / channel
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any, Literal, Mapping, Protocol
 from .session.session import Session, SessionConfig
 from .session.session_manager import SessionManager
-from .agent_types import AgentRequest, AgentResponse
+from .agent_types import AgentRequest, AgentResponse, ResponseReason
 from .session.message_factory import new_message
 from .session.multimodal_user_payload import flatten_payload_for_security, new_user_message_from_agent_payload
 from .session.openai_message_format import tool_content_openai_v1
 from .memory.content import MemoryChunkRecord
 from .memory.orchestrator import MemoryOrchestrator
-from .user_intent import SystemArchive, SystemDelegate, SystemForget, SystemRemember
+from .user_intent import SystemArchive, SystemDelegate, SystemFact, SystemForget, SystemPreference, SystemRemember
 from modules.assembly.interface import AssemblyModule
 from modules.model.interface import ModelModule, ModelOutput
 from modules.tools.interface import ToolModule
@@ -32,12 +35,16 @@ from .policies import (
     decide_tool_policy,
     max_loops_exceeded_response,
     next_tool_calls,
+    repeated_tool_call_response,
     resolve_handler,
     tool_call_budget_decision,
+    tool_call_fingerprint,
 )
 from .policies.loop_policy import LoopGovernance
 from .policies.tool_policy import ToolPolicyDecision
 from .policies.tool_actions import ToolContext, ToolDeps, step_device_request, step_error, step_execute_tool
+
+_log = logging.getLogger(__name__)
 
 _GUARD_BLOCK_PATTERNS: tuple[str, ...] = (
     "ignore previous instructions",
@@ -279,12 +286,20 @@ class AgentCoreImpl(AgentCore):
             reset_model_stream_delta(token)
 
     def _handle(self, request: AgentRequest, *, bypass_tool_confirmation: bool) -> AgentResponse:
+        _log.debug(
+            "core._handle intent=%s",
+            type(request.intent).__name__ if request.intent is not None else "none",
+        )
         if isinstance(request.intent, SystemArchive):
             return self._handle_archive_command(request)
         if isinstance(request.intent, SystemRemember):
             return self._handle_remember_command(request)
         if isinstance(request.intent, SystemForget):
             return self._handle_forget_command(request)
+        if isinstance(request.intent, SystemPreference):
+            return self._handle_preference_command(request)
+        if isinstance(request.intent, SystemFact):
+            return self._handle_fact_command(request)
         if isinstance(request.intent, SystemDelegate):
             return self._handle_delegate_command(request)
         # 1. 获取会话配置并查找/创建 Session
@@ -331,7 +346,7 @@ class AgentCoreImpl(AgentCore):
                 session=session,
                 reply_text="没有可归档的活跃会话。",
                 error=None,
-                reason="ok",
+                reason=ResponseReason.OK,
             )
         self._session_manager.append_message(
             session.session_id,
@@ -347,7 +362,7 @@ class AgentCoreImpl(AgentCore):
             session=session,
             reply_text="会话已归档。",
             error=None,
-            reason="ok",
+            reason=ResponseReason.OK,
         )
 
     def _schedule_archive_llm_summary(self, session: Session) -> None:
@@ -396,7 +411,7 @@ class AgentCoreImpl(AgentCore):
                 session=session,
                 reply_text="长期记忆未启用（memory_policy.enabled=false 或未加载）。",
                 error=None,
-                reason="ok",
+                reason=ResponseReason.OK,
             )
         if self._resource_access is not None and not self._resource_access.is_allowed(RESOURCE_LONG_TERM_MEMORY, "write"):
             return AgentResponse(
@@ -404,7 +419,15 @@ class AgentCoreImpl(AgentCore):
                 session=session,
                 reply_text="当前资源策略禁止写入长期记忆。",
                 error=None,
-                reason="resource_access_denied",
+                reason=ResponseReason.RESOURCE_ACCESS_DENIED,
+            )
+        if self._resource_access is not None and self._resource_access.requires_approval(RESOURCE_LONG_TERM_MEMORY, "write"):
+            return AgentResponse(
+                request_id=request.request_id,
+                session=session,
+                reply_text="当前资源策略要求审批后方可写入长期记忆。",
+                error=None,
+                reason=ResponseReason.RESOURCE_APPROVAL_REQUIRED,
             )
         blocked = self._enforce_security_policy(
             request_id=request.request_id,
@@ -432,7 +455,7 @@ class AgentCoreImpl(AgentCore):
             session=session,
             reply_text="已写入长期记忆。",
             error=None,
-            reason="ok",
+            reason=ResponseReason.OK,
         )
 
     def _handle_forget_command(self, request: AgentRequest) -> AgentResponse:
@@ -450,7 +473,7 @@ class AgentCoreImpl(AgentCore):
                 session=session,
                 reply_text="长期记忆未启用（memory_policy.enabled=false 或未加载）。",
                 error=None,
-                reason="ok",
+                reason=ResponseReason.OK,
             )
         if self._resource_access is not None and not self._resource_access.is_allowed(RESOURCE_LONG_TERM_MEMORY, "write"):
             return AgentResponse(
@@ -458,7 +481,15 @@ class AgentCoreImpl(AgentCore):
                 session=session,
                 reply_text="当前资源策略禁止修改长期记忆（遗忘）。",
                 error=None,
-                reason="resource_access_denied",
+                reason=ResponseReason.RESOURCE_ACCESS_DENIED,
+            )
+        if self._resource_access is not None and self._resource_access.requires_approval(RESOURCE_LONG_TERM_MEMORY, "write"):
+            return AgentResponse(
+                request_id=request.request_id,
+                session=session,
+                reply_text="当前资源策略要求审批后方可修改长期记忆（遗忘）。",
+                error=None,
+                reason=ResponseReason.RESOURCE_APPROVAL_REQUIRED,
             )
         blocked = self._enforce_security_policy(
             request_id=request.request_id,
@@ -478,7 +509,179 @@ class AgentCoreImpl(AgentCore):
             session=session,
             reply_text=f"已按短语处理长期记忆 {n} 条。",
             error=None,
-            reason="ok",
+            reason=ResponseReason.OK,
+        )
+
+    def _handle_preference_command(self, request: AgentRequest) -> AgentResponse:
+        if not isinstance(request.intent, SystemPreference):
+            raise TypeError("expected SystemPreference")
+        config = self._config_provider(request.user_id, request.channel)
+        session = self._session_manager.get_or_create_session(
+            user_id=request.user_id,
+            channel=request.channel,
+            config=config,
+        )
+        if self._memory_orchestrator is None:
+            return AgentResponse(
+                request_id=request.request_id,
+                session=session,
+                reply_text="长期记忆未启用（memory_policy.enabled=false 或未加载）。",
+                error=None,
+                reason=ResponseReason.OK,
+            )
+        if self._resource_access is not None and not self._resource_access.is_allowed(RESOURCE_LONG_TERM_MEMORY, "write"):
+            if request.intent.action in ("set", "delete"):
+                return AgentResponse(
+                    request_id=request.request_id,
+                    session=session,
+                    reply_text="当前资源策略禁止写入长期记忆。",
+                    error=None,
+                    reason=ResponseReason.RESOURCE_ACCESS_DENIED,
+                )
+        if self._resource_access is not None and request.intent.action in ("set", "delete"):
+            if self._resource_access.requires_approval(RESOURCE_LONG_TERM_MEMORY, "write"):
+                return AgentResponse(
+                    request_id=request.request_id,
+                    session=session,
+                    reply_text="当前资源策略要求审批后方可写入长期记忆。",
+                    error=None,
+                    reason=ResponseReason.RESOURCE_APPROVAL_REQUIRED,
+                )
+        if self._resource_access is not None and not self._resource_access.is_allowed(RESOURCE_LONG_TERM_MEMORY, "read"):
+            if request.intent.action in ("get", "list"):
+                return AgentResponse(
+                    request_id=request.request_id,
+                    session=session,
+                    reply_text="当前资源策略禁止读取长期记忆。",
+                    error=None,
+                    reason=ResponseReason.RESOURCE_ACCESS_DENIED,
+                )
+        if self._resource_access is not None and request.intent.action in ("get", "list"):
+            if self._resource_access.requires_approval(RESOURCE_LONG_TERM_MEMORY, "read"):
+                return AgentResponse(
+                    request_id=request.request_id,
+                    session=session,
+                    reply_text="当前资源策略要求审批后方可读取长期记忆。",
+                    error=None,
+                    reason=ResponseReason.RESOURCE_APPROVAL_REQUIRED,
+                )
+        self._session_manager.append_message(
+            session.session_id,
+            new_message(role="user", content=str(request.payload), loop_index=0),
+        )
+        mo = self._memory_orchestrator
+        intent = request.intent
+        if intent.action == "set":
+            mo.set_preference(request.user_id, intent.key, intent.value)
+            reply = f"偏好已设置：{intent.key}={intent.value}"
+        elif intent.action == "get":
+            val = mo.get_preference(request.user_id, intent.key)
+            reply = f"{intent.key}={val}" if val is not None else f"未找到偏好 {intent.key!r}。"
+        elif intent.action == "list":
+            prefs = mo.list_preferences(request.user_id)
+            if prefs:
+                lines = [f"  {k}={v}" for k, v in prefs]
+                reply = "当前偏好：\n" + "\n".join(lines)
+            else:
+                reply = "暂无偏好记录。"
+        elif intent.action == "delete":
+            deleted = mo.delete_preference(request.user_id, intent.key)
+            reply = f"已删除偏好 {intent.key!r}。" if deleted else f"未找到偏好 {intent.key!r}。"
+        else:
+            reply = f"未知 preference 操作：{intent.action!r}。支持 set/get/list/delete。"
+        session = self._session_manager.get_session(session.session_id) or session
+        return AgentResponse(
+            request_id=request.request_id,
+            session=session,
+            reply_text=reply,
+            error=None,
+            reason=ResponseReason.OK,
+        )
+
+    def _handle_fact_command(self, request: AgentRequest) -> AgentResponse:
+        if not isinstance(request.intent, SystemFact):
+            raise TypeError("expected SystemFact")
+        config = self._config_provider(request.user_id, request.channel)
+        session = self._session_manager.get_or_create_session(
+            user_id=request.user_id,
+            channel=request.channel,
+            config=config,
+        )
+        if self._memory_orchestrator is None:
+            return AgentResponse(
+                request_id=request.request_id,
+                session=session,
+                reply_text="长期记忆未启用（memory_policy.enabled=false 或未加载）。",
+                error=None,
+                reason=ResponseReason.OK,
+            )
+        if self._resource_access is not None and not self._resource_access.is_allowed(RESOURCE_LONG_TERM_MEMORY, "write"):
+            if request.intent.action in ("add", "delete"):
+                return AgentResponse(
+                    request_id=request.request_id,
+                    session=session,
+                    reply_text="当前资源策略禁止写入长期记忆。",
+                    error=None,
+                    reason=ResponseReason.RESOURCE_ACCESS_DENIED,
+                )
+        if self._resource_access is not None and request.intent.action in ("add", "delete"):
+            if self._resource_access.requires_approval(RESOURCE_LONG_TERM_MEMORY, "write"):
+                return AgentResponse(
+                    request_id=request.request_id,
+                    session=session,
+                    reply_text="当前资源策略要求审批后方可写入长期记忆。",
+                    error=None,
+                    reason=ResponseReason.RESOURCE_APPROVAL_REQUIRED,
+                )
+        if self._resource_access is not None and not self._resource_access.is_allowed(RESOURCE_LONG_TERM_MEMORY, "read"):
+            if request.intent.action in ("get", "list"):
+                return AgentResponse(
+                    request_id=request.request_id,
+                    session=session,
+                    reply_text="当前资源策略禁止读取长期记忆。",
+                    error=None,
+                    reason=ResponseReason.RESOURCE_ACCESS_DENIED,
+                )
+        if self._resource_access is not None and request.intent.action in ("get", "list"):
+            if self._resource_access.requires_approval(RESOURCE_LONG_TERM_MEMORY, "read"):
+                return AgentResponse(
+                    request_id=request.request_id,
+                    session=session,
+                    reply_text="当前资源策略要求审批后方可读取长期记忆。",
+                    error=None,
+                    reason=ResponseReason.RESOURCE_APPROVAL_REQUIRED,
+                )
+        self._session_manager.append_message(
+            session.session_id,
+            new_message(role="user", content=str(request.payload), loop_index=0),
+        )
+        mo = self._memory_orchestrator
+        intent = request.intent
+        if intent.action == "add":
+            mo.add_fact(request.user_id, intent.statement)
+            reply = f"事实已记录：{intent.statement}"
+        elif intent.action == "get":
+            val = mo.get_fact(request.user_id, intent.statement)
+            reply = val if val is not None else f"未找到匹配事实 {intent.statement!r}。"
+        elif intent.action == "list":
+            facts = mo.list_facts(request.user_id)
+            if facts:
+                lines = [f"  - {s}" for s in facts]
+                reply = "已记录事实：\n" + "\n".join(lines)
+            else:
+                reply = "暂无事实记录。"
+        elif intent.action == "delete":
+            deleted = mo.delete_fact(request.user_id, intent.statement)
+            reply = f"已删除事实 {intent.statement!r}。" if deleted else f"未找到匹配事实 {intent.statement!r}。"
+        else:
+            reply = f"未知 fact 操作：{intent.action!r}。支持 add/get/list/delete。"
+        session = self._session_manager.get_session(session.session_id) or session
+        return AgentResponse(
+            request_id=request.request_id,
+            session=session,
+            reply_text=reply,
+            error=None,
+            reason=ResponseReason.OK,
         )
 
     def _handle_delegate_command(self, request: AgentRequest) -> AgentResponse:
@@ -504,7 +707,7 @@ class AgentCoreImpl(AgentCore):
                 session=session,
                 reply_text=None,
                 error="delegate target 不在 kernel.delegate_target_allowlist 中",
-                reason="delegate_target_denied",
+                reason=ResponseReason.DELEGATE_TARGET_DENIED,
             )
         self._session_manager.append_message(
             session.session_id,
@@ -516,7 +719,7 @@ class AgentCoreImpl(AgentCore):
             session=session,
             reply_text="已发出 delegate 事件，子代理路由由网关/适配层消费 PortEvent。",
             error=None,
-            reason="delegate",
+            reason=ResponseReason.DELEGATE,
             delegate_target=request.intent.target,
             delegate_payload=request.intent.payload,
         )
@@ -536,6 +739,8 @@ class AgentCoreImpl(AgentCore):
     ) -> AgentResponse:
         governance = self._resolve_loop_governance(session)
         tool_calls = 0
+        last_tool_fp: str | None = None
+        repeat_streak = 0
         handlers = build_output_handlers(
             on_text=self._build_text_response,
             on_tool_call=lambda rid, s, ctx, out: self._handle_tool_call_with_policy(
@@ -554,13 +759,33 @@ class AgentCoreImpl(AgentCore):
                     session=session,
                     reply_text=None,
                     error=f"unsupported model output kind: {output.kind!r}",
-                    reason="unsupported_output_kind",
+                    reason=ResponseReason.UNSUPPORTED_OUTPUT_KIND,
                 ),
                 context=context,
             )
 
         for _ in range(governance.max_loops):
             output = self._model.run(session, context)
+            if output.kind == "text":
+                last_tool_fp = None
+                repeat_streak = 0
+            elif output.kind == "tool_call":
+                if output.tool_call is None:
+                    last_tool_fp = None
+                    repeat_streak = 0
+                else:
+                    fp = tool_call_fingerprint(output.tool_call)
+                    if fp == last_tool_fp:
+                        repeat_streak += 1
+                    else:
+                        repeat_streak = 1
+                        last_tool_fp = fp
+                    if repeat_streak >= 2:
+                        return repeated_tool_call_response(request_id=request_id, session=session)
+            else:
+                last_tool_fp = None
+                repeat_streak = 0
+
             handler = resolve_handler(handlers=handlers, kind=output.kind, on_unsupported=unsupported_step)
 
             tool_calls = next_tool_calls(current=tool_calls, output_kind=output.kind)
@@ -591,7 +816,7 @@ class AgentCoreImpl(AgentCore):
             session=session,
             reply_text=reply_text,
             error=None,
-            reason="ok",
+            reason=ResponseReason.OK,
         )
 
     def _enforce_security_policy(self, *, request_id: str, session: Session, payload: Any) -> AgentResponse | None:
@@ -609,7 +834,7 @@ class AgentCoreImpl(AgentCore):
                             session=session,
                             reply_text=None,
                             error=f"input blocked by guard model for policy {policy_id!r}",
-                            reason="security_guard_model_blocked_input",
+                            reason=ResponseReason.SECURITY_GUARD_MODEL_BLOCKED_INPUT,
                         )
                 except Exception:
                     pass
@@ -619,7 +844,7 @@ class AgentCoreImpl(AgentCore):
                 session=session,
                 reply_text=None,
                 error=f"input blocked by guard policy {policy_id!r}",
-                reason="security_guard_blocked_input",
+                reason=ResponseReason.SECURITY_GUARD_BLOCKED_INPUT,
             )
         input_max_chars = int(getattr(policy, "input_max_chars", 0))
         if input_max_chars > 0 and len(message_text) > input_max_chars:
@@ -628,7 +853,7 @@ class AgentCoreImpl(AgentCore):
                 session=session,
                 reply_text=None,
                 error=f"input exceeds max chars for security policy {policy_id!r}",
-                reason="security_input_too_long",
+                reason=ResponseReason.SECURITY_INPUT_TOO_LONG,
             )
         max_rpm = int(getattr(policy, "max_requests_per_minute", 0))
         if max_rpm > 0:
@@ -644,7 +869,7 @@ class AgentCoreImpl(AgentCore):
                     session=session,
                     reply_text=None,
                     error=f"request rate exceeded for security policy {policy_id!r}",
-                    reason="security_rate_limited",
+                    reason=ResponseReason.SECURITY_RATE_LIMITED,
                 )
         return None
 
@@ -761,7 +986,7 @@ class AgentCoreImpl(AgentCore):
                 session=session,
                 context=context,
                 error="tool_call is missing",
-                reason="tool_call_missing",
+                reason=ResponseReason.TOOL_CALL_MISSING,
             )
 
         decision = self._tool_policy_decide(
@@ -775,7 +1000,7 @@ class AgentCoreImpl(AgentCore):
                 session=session,
                 context=context,
                 error=f"tool not allowed: {tool_call.name!r}",
-                reason=decision.reason or "tool_policy_denied",
+                reason=ResponseReason.TOOL_POLICY_DENIED,
             )
 
         if tool_call.name == "search_memory" and self._resource_access is not None:
@@ -785,7 +1010,7 @@ class AgentCoreImpl(AgentCore):
                     session=session,
                     context=context,
                     error="resource policy denies read access to long_term_memory (search_memory)",
-                    reason="resource_access_denied",
+                    reason=ResponseReason.RESOURCE_ACCESS_DENIED,
                 )
 
         force_confirmation = (not bypass_tool_confirmation) and self._should_force_confirmation_by_risk(
@@ -799,7 +1024,7 @@ class AgentCoreImpl(AgentCore):
                     session=session,
                     reply_text=None,
                     error="confirmation required",
-                    reason="confirmation_required",
+                    reason=ResponseReason.CONFIRMATION_REQUIRED,
                     pending_tool_call=tool_call,
                 ),
                 context=context,

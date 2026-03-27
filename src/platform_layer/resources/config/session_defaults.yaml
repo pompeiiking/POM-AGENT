@@ -17,7 +17,9 @@ session:
     assembly_tail_messages: 20
     # 组装部单条消息最大字符数（渲染为纯文本后截断，0=不限制）；与 assembly_tail_messages 一起做粗粒度上下文压缩
     assembly_message_max_chars: 12000
-    # 组装部纳入 Context 的近似 token 总量上限（启发式，0=不按总量裁剪）；与单条字符上限配合完成 P1
+    # 组装部纳入 Context 的近似 token 总量上限（0=不按总量裁剪）；与单条字符上限配合完成 P1
+    # assembly_token_counter: heuristic   # 或 tiktoken（需 pip install tiktoken，按 assembly_tiktoken_encoding 分词）
+    # assembly_tiktoken_encoding: cl100k_base
     assembly_approx_context_tokens: 24000
     # §7.3 可选：超限时先截 tool 正文 / 再折叠早期纯文本 user+assistant（0=关闭该级）
     # assembly_compress_tool_max_chars: 800

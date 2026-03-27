@@ -1,0 +1,2 @@
+# platform_layer 静态 YAML/数据需随包分发（装配期读盘）
+graft src/platform_layer/resources

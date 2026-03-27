@@ -13,7 +13,7 @@ from modules.model.interface import ModelOutput
 class ModelChatBackend(Protocol):
     """
     统一聊天推理后端入口。
-    业界常见做法（如 LiteLLM、OpenRouter、各类 Gateway）是：
+    业界常见做法（统一网关 / 多供应商路由）是：
     - 用少数「协议适配器」（OpenAI 兼容、Anthropic Messages 等）覆盖多供应商；
     - 用配置（base_url、model、鉴权）区分路由，而不是每个供应商一份手写分支。
     """

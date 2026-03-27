@@ -1,6 +1,7 @@
 """会话与消息数据模型。"""
 
 from .session import (
+    InvalidSessionTransition,
     Part,
     Message,
     SessionStatus,
@@ -8,9 +9,11 @@ from .session import (
     SessionConfig,
     SessionStats,
     Session,
+    validate_session_transition,
 )
 
 __all__ = [
+    "InvalidSessionTransition",
     "Part",
     "Message",
     "SessionStatus",
@@ -18,4 +21,5 @@ __all__ = [
     "SessionConfig",
     "SessionStats",
     "Session",
+    "validate_session_transition",
 ]

@@ -10,8 +10,10 @@ from core.user_intent import (
     Chat,
     SystemArchive,
     SystemDelegate,
+    SystemFact,
     SystemForget,
     SystemHelp,
+    SystemPreference,
     SystemRemember,
     SystemSummary,
     ToolAdd,
@@ -43,6 +45,33 @@ def parse_user_intent(raw: str) -> UserIntent:
         body = stripped[len("/forget ") :].strip()
         if body:
             return SystemForget(phrase=body)
+    if stripped.startswith("/preference"):
+        rest = stripped[len("/preference"):].strip()
+        if rest == "list":
+            return SystemPreference(action="list")
+        parts = rest.split(None, 2)
+        if len(parts) >= 1:
+            action = parts[0]
+            if action == "get" and len(parts) >= 2:
+                return SystemPreference(action="get", key=parts[1])
+            if action == "set" and len(parts) >= 3:
+                return SystemPreference(action="set", key=parts[1], value=parts[2])
+            if action == "delete" and len(parts) >= 2:
+                return SystemPreference(action="delete", key=parts[1])
+    if stripped.startswith("/fact"):
+        rest = stripped[len("/fact"):].strip()
+        if rest == "list":
+            return SystemFact(action="list")
+        parts = rest.split(None, 1)
+        if len(parts) >= 1:
+            action = parts[0]
+            body = parts[1] if len(parts) >= 2 else ""
+            if action == "add" and body:
+                return SystemFact(action="add", statement=body)
+            if action == "get" and body:
+                return SystemFact(action="get", statement=body)
+            if action == "delete" and body:
+                return SystemFact(action="delete", statement=body)
     if stripped.startswith("/delegate"):
         rest = stripped[len("/delegate") :].strip()
         if rest:

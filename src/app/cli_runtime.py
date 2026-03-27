@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from infra.logging_config import setup_structured_logging
+
 from app.composition import build_port
 from app.config_loaders.runtime_config_loader import RuntimeConfigSource, load_runtime_config
 from app.port_mode_registry import resolve_interaction_mode
@@ -32,6 +34,7 @@ def run(mode: InteractionMode) -> None:
 
 
 def main() -> None:
+    setup_structured_logging()
     src_root = Path(__file__).resolve().parents[1]
     rc = load_runtime_config(
         RuntimeConfigSource(path=src_root / "platform_layer" / "resources" / "config" / "runtime.yaml")

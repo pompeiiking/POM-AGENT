@@ -25,3 +25,6 @@ class MemoryPolicyConfig:
     dual_store_ref: str
     embedding_ref: str
     embedding_openai: OpenAICompatibleEmbeddingParams | None
+    # 可选：独立向量/检索服务（HTTP）入口；设置后 retrieve_for_context 会融合远端候选
+    remote_retrieval_url: str = ""
+    remote_timeout_seconds: float = 5.0

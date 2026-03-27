@@ -1,15 +1,22 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+import logging
+from collections.abc import Callable, Sequence
 
 from core.session.openai_message_format import OPENAI_V1
 from core.session.rule_summary import render_message_plain_text
 from core.session.session import Message, Part
 
+_logger = logging.getLogger(__name__)
+
+# (mode, encoding) -> counter，避免每轮重复 get_encoding
+_MESSAGE_TOKEN_COUNTER_CACHE: dict[tuple[str, str], Callable[[Message], int]] = {}
+
 
 def approximate_message_tokens(message: Message) -> int:
     """
-    近似 token 数（不依赖 tiktoken）：len(utf-8 文本) / 4 为常见启发式，用于组装部总预算裁剪。
+    启发式近似 token：len(utf-8 文本)/4；不依赖 tiktoken。
+    与 ``make_message_token_counter("heuristic", _)`` 等价。
     """
     n = len(render_message_plain_text(message).strip())
     if n == 0:
@@ -17,8 +24,56 @@ def approximate_message_tokens(message: Message) -> int:
     return max(1, n // 4)
 
 
-def total_approx_tokens(messages: Sequence[Message]) -> int:
-    return sum(approximate_message_tokens(m) for m in messages)
+def make_message_token_counter(mode: str, encoding: str) -> Callable[[Message], int]:
+    """
+    按会话配置构造单条消息的 token 计数函数。
+
+    - ``heuristic``：len/4
+    - ``tiktoken``：使用 ``tiktoken.get_encoding(encoding)``；未安装 tiktoken 时记录警告并回退 heuristic
+    """
+    key = (mode.strip().lower(), encoding.strip())
+    cached = _MESSAGE_TOKEN_COUNTER_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    if key[0] == "heuristic" or not key[0]:
+        fn: Callable[[Message], int] = approximate_message_tokens
+        _MESSAGE_TOKEN_COUNTER_CACHE[key] = fn
+        return fn
+
+    if key[0] == "tiktoken":
+        try:
+            import tiktoken
+        except ImportError:
+            _logger.warning(
+                "assembly_token_counter=tiktoken but tiktoken is not installed; "
+                "falling back to heuristic (len/4). Install tiktoken for precise counts."
+            )
+            _MESSAGE_TOKEN_COUNTER_CACHE[key] = approximate_message_tokens
+            return approximate_message_tokens
+
+        enc = tiktoken.get_encoding(key[1])
+
+        def _tiktoken_count(message: Message) -> int:
+            text = render_message_plain_text(message).strip()
+            if not text:
+                return 0
+            n = len(enc.encode(text))
+            return max(1, n)
+
+        _MESSAGE_TOKEN_COUNTER_CACHE[key] = _tiktoken_count
+        return _tiktoken_count
+
+    raise ValueError(f"unknown assembly_token_counter: {mode!r}")
+
+
+def total_approx_tokens(
+    messages: Sequence[Message],
+    *,
+    count_tokens: Callable[[Message], int] | None = None,
+) -> int:
+    ct = count_tokens or approximate_message_tokens
+    return sum(ct(m) for m in messages)
 
 
 _TIER1_TOOL_SUFFIX = "…[tier1_tool_compressed]"
@@ -31,6 +86,7 @@ def apply_three_tier_token_budget(
     *,
     compress_tool_max_chars: int,
     compress_early_turn_chars: int,
+    count_tokens: Callable[[Message], int] | None = None,
 ) -> list[Message]:
     """
     架构 §7.3 层面 A（MVP，无异步归档）：
@@ -41,38 +97,44 @@ def apply_three_tier_token_budget(
 
     ``compress_*`` 为 0 时跳过对应级（默认全 0 时与仅第三级行为一致）。
     """
+    ct = count_tokens or approximate_message_tokens
     if budget <= 0:
         return list(messages)
     msgs = list(messages)
-    if total_approx_tokens(msgs) <= budget:
+    if total_approx_tokens(msgs, count_tokens=ct) <= budget:
         return msgs
 
     if compress_tool_max_chars > 0:
         msgs = [_shorten_openai_tool_message(m, max_chars=compress_tool_max_chars) for m in msgs]
-        if total_approx_tokens(msgs) <= budget:
+        if total_approx_tokens(msgs, count_tokens=ct) <= budget:
             return msgs
 
     if compress_early_turn_chars > 0:
         msgs = _tier2_collapse_early_plain_turns(
-            msgs, budget=budget, max_chars=compress_early_turn_chars
+            msgs, budget=budget, max_chars=compress_early_turn_chars, count_tokens=ct
         )
-        if total_approx_tokens(msgs) <= budget:
+        if total_approx_tokens(msgs, count_tokens=ct) <= budget:
             return msgs
 
-    return trim_messages_to_approx_token_budget(msgs, budget)
+    return trim_messages_to_approx_token_budget(msgs, budget, count_tokens=ct)
 
 
-def trim_messages_to_approx_token_budget(messages: Sequence[Message], budget: int) -> list[Message]:
+def trim_messages_to_approx_token_budget(
+    messages: Sequence[Message],
+    budget: int,
+    count_tokens: Callable[[Message], int] | None = None,
+) -> list[Message]:
     """
-    从**最新**往旧保留消息，使近似 token 总和不超过 budget。
+    从**最新**往旧保留消息，使 token 总和不超过 budget。
     budget <= 0 时不裁剪。
     """
+    ct = count_tokens or approximate_message_tokens
     if budget <= 0:
         return list(messages)
     rev: list[Message] = []
     total = 0
     for m in reversed(messages):
-        t = approximate_message_tokens(m)
+        t = ct(m)
         if not rev and t > budget:
             return [m]
         if total + t > budget:
@@ -127,11 +189,12 @@ def _tier2_collapse_early_plain_turns(
     *,
     budget: int,
     max_chars: int,
+    count_tokens: Callable[[Message], int],
 ) -> list[Message]:
     msgs = list(messages)
     guard = 0
     max_iter = max(1, len(msgs) * 2)
-    while total_approx_tokens(msgs) > budget and guard < max_iter:
+    while total_approx_tokens(msgs, count_tokens=count_tokens) > budget and guard < max_iter:
         guard += 1
         new_msgs, did = _collapse_first_plain_user_assistant_pair(msgs, max_chars=max_chars)
         if not did:

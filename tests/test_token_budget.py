@@ -5,7 +5,11 @@ from core.session.session import Session, SessionConfig, SessionLimits, SessionS
 from core.agent_types import AgentRequest
 from core.session.rule_summary import render_message_plain_text
 from modules.assembly.impl import AssemblyModuleImpl
-from modules.assembly.token_budget import approximate_message_tokens, trim_messages_to_approx_token_budget
+from modules.assembly.token_budget import (
+    approximate_message_tokens,
+    make_message_token_counter,
+    trim_messages_to_approx_token_budget,
+)
 
 
 def test_trim_keeps_suffix_under_budget() -> None:
@@ -21,6 +25,18 @@ def test_trim_keeps_suffix_under_budget() -> None:
 def test_approximate_message_tokens() -> None:
     m = new_message(role="user", content="x" * 40, loop_index=0)
     assert approximate_message_tokens(m) == 10
+
+
+def test_make_message_token_counter_heuristic_matches_approximate() -> None:
+    fn = make_message_token_counter("heuristic", "cl100k_base")
+    m = new_message(role="user", content="x" * 40, loop_index=0)
+    assert fn(m) == approximate_message_tokens(m)
+
+
+def test_make_message_token_counter_tiktoken_english() -> None:
+    fn = make_message_token_counter("tiktoken", "cl100k_base")
+    m = new_message(role="user", content="hello world", loop_index=0)
+    assert fn(m) == 2
 
 
 def test_assembly_respects_token_budget() -> None:

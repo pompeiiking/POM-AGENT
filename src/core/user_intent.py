@@ -44,6 +44,21 @@ class SystemForget:
 
 
 @dataclass(frozen=True)
+class SystemPreference:
+    """用户偏好 CRUD：/preference set|get|list|delete。"""
+    action: str  # "set" | "get" | "list" | "delete"
+    key: str = ""
+    value: str = ""
+
+
+@dataclass(frozen=True)
+class SystemFact:
+    """事实记录 CRUD：/fact add|get|list|delete。"""
+    action: str  # "add" | "get" | "list" | "delete"
+    statement: str = ""
+
+
+@dataclass(frozen=True)
 class SystemDelegate:
     """
     多 Agent 协作（架构 ver0.4 Port.emit delegate）：
@@ -86,6 +101,8 @@ UserIntent = Union[
     SystemArchive,
     SystemRemember,
     SystemForget,
+    SystemPreference,
+    SystemFact,
     SystemDelegate,
     ToolEcho,
     ToolTakePhoto,

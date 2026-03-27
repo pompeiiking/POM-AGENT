@@ -12,6 +12,7 @@ class RuntimeConfigLoaderError(ValueError):
 
 
 Backend = Literal["sqlite"]
+PendingStateBackend = Literal["memory", "sqlite_shared"]
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,8 @@ class RuntimeConfig:
     session_backend: Backend
     sqlite_path: Path
     port_interaction_mode_ref: str = "builtin:cli"
+    pending_state_backend: PendingStateBackend = "memory"
+    pending_state_sqlite_path: Path = Path("platform_layer/resources/data/port_pending.db")
 
 
 @dataclass(frozen=True)
@@ -56,10 +59,26 @@ def load_runtime_config(source: RuntimeConfigSource) -> RuntimeConfig:
                 raise RuntimeConfigLoaderError("port.interaction_mode_ref must be a non-empty string when present")
             port_ref = im.strip()
 
+    pending_backend: PendingStateBackend = "memory"
+    pending_sqlite_rel = "platform_layer/resources/data/port_pending.db"
+    if port_raw is not None:
+        pb = port_raw.get("pending_state_backend")
+        if pb is not None:
+            if not isinstance(pb, str) or pb.strip() not in ("memory", "sqlite_shared"):
+                raise RuntimeConfigLoaderError("port.pending_state_backend must be memory|sqlite_shared")
+            pending_backend = pb.strip()  # type: ignore[assignment]
+        psp = port_raw.get("pending_state_sqlite_path")
+        if psp is not None:
+            if not isinstance(psp, str) or not psp.strip():
+                raise RuntimeConfigLoaderError("port.pending_state_sqlite_path must be non-empty string")
+            pending_sqlite_rel = psp.strip()
+
     return RuntimeConfig(
         session_backend="sqlite",
         sqlite_path=Path(sqlite_rel.strip()),
         port_interaction_mode_ref=port_ref,
+        pending_state_backend=pending_backend,
+        pending_state_sqlite_path=Path(pending_sqlite_rel),
     )
 
 

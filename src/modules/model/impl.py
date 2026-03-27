@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import uuid
@@ -36,8 +37,11 @@ from infra.model_provider_circuit import model_circuit_precheck, model_circuit_r
 from infra.model_provider_rate_limit import model_rate_precheck
 from infra.prompt_cache import PromptCache
 from .openai_failure import openai_output_suggests_failover
+from .openai_provider_route import chat_completions_url, get_openai_chat_route
 from .prompt_strategy_context import get_default_prompt_strategy_ref, prompt_strategy_ref_scope
 from .prompt_strategy_registry import run_prompt_strategy
+
+_log = logging.getLogger(__name__)
 
 
 class ModelModuleImpl(ModelModule):
@@ -196,13 +200,6 @@ def _effective_backend(provider: ModelProvider) -> Literal["stub", "openai_compa
     if b == "openai_compatible":
         return "openai_compatible"
     return "stub"
-
-
-def _api_key_env_name(provider: ModelProvider) -> str | None:
-    raw = provider.params.get("api_key_env")
-    if isinstance(raw, str) and raw.strip():
-        return raw.strip()
-    return None
 
 
 def _dispatch_openai_compatible_chat(
@@ -414,21 +411,16 @@ def run_openai_compatible_chat_impl(
     - api_key 来自 params.api_key_env 所指环境变量；
     - 出错时返回文本错误信息，而不是抛异常。
     """
-    env_name = _api_key_env_name(provider)
-    if not env_name:
-        return ModelOutput(
-            kind="text",
-            content=(
-                f"模型 [{provider.id}] 未配置 api_key_env：请在 model_providers.yaml 的 params 中设置 "
-                "api_key_env（环境变量名），并在运行环境中导出对应 API Key。"
-            ),
-        )
+    resolved = get_openai_chat_route(provider)
+    if not resolved.ok or resolved.route is None:
+        return ModelOutput(kind="text", content=resolved.error_message or "模型路由解析失败。")
+    route = resolved.route
 
-    api_key = os.environ.get(env_name)
+    api_key = os.environ.get(route.api_key_env)
     if not api_key:
         return ModelOutput(
             kind="text",
-            content=f"模型 [{provider.id}] 未配置：请在环境变量 {env_name} 中设置 API Key。",
+            content=f"模型 [{provider.id}] 未配置：请在环境变量 {route.api_key_env} 中设置 API Key。",
         )
 
     blocked = model_circuit_precheck(provider)
@@ -439,13 +431,17 @@ def run_openai_compatible_chat_impl(
     if throttled is not None:
         return throttled
 
-    default_base = "https://api.openai.com"
-    base_url = str(provider.params.get("base_url", default_base)).rstrip("/")
-    url = f"{base_url}/v1/chat/completions"
+    base_url = route.base_url
+    url = chat_completions_url(route)
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
+    extra_h = provider.params.get("extra_headers")
+    if isinstance(extra_h, Mapping):
+        for hk, hv in extra_h.items():
+            if isinstance(hk, str) and isinstance(hv, str) and hk.strip():
+                headers[hk.strip()] = hv
     max_history = int(provider.params.get("max_history", 10))
     iso = bool(context.meta.get("context_isolation_enabled", True))
     history_messages = _render_history_messages_for_model_plain(context, max_history=max_history)
@@ -532,9 +528,8 @@ def run_openai_compatible_chat_impl(
         messages_payload.append({"role": "system", "content": mem.strip()})
     messages_payload.extend(history_messages)
 
-    default_model = "gpt-4o-mini"
     payload: dict[str, Any] = {
-        "model": provider.params.get("model", default_model),
+        "model": route.model,
         "messages": messages_payload,
     }
     tools = provider.params.get("tools")
@@ -544,8 +539,7 @@ def run_openai_compatible_chat_impl(
     if tc is not None:
         payload["tool_choice"] = tc
 
-    timeout = provider.params.get("timeout", 30.0)
-    timeout_f = float(timeout) if isinstance(timeout, (int, float)) else 30.0
+    timeout_f = route.timeout_seconds
 
     delta_cb = get_model_stream_delta()
     tools_nonempty = isinstance(tools, list) and bool(tools)
@@ -557,6 +551,7 @@ def run_openai_compatible_chat_impl(
     )
 
     try:
+        _log.debug("model.openai_compatible.chat provider_id=%s stream=%s", provider.id, use_stream)
         if use_stream:
             result = _post_openai_chat_stream(
                 provider=provider,

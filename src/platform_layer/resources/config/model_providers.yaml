@@ -9,6 +9,14 @@
 #
 # 密钥：禁止写入本文件；在 params.api_key_env 中声明环境变量名，运行前在 shell 中 export。
 #
+# 声明式路由（与统一网关思路对齐，本仓库自研解析，见 modules.model.openai_provider_route）：
+#   - params.model：发给远端的模型名（优先级最高）。
+#   - params.model_id：可选「前缀/模型名」，例如 deepseek/deepseek-chat；在**未**写 base_url 时，
+#     按前缀选用内置默认根 URL（见 openai_provider_route._VENDOR_DEFAULT_BASE_URL）；模型名取斜杠后一段。
+#   - params.base_url：显式指定时始终优先，覆盖 model_id 前缀推断。
+#   - params.chat_completions_path：默认 /v1/chat/completions；非标准路径的网关可改。
+#   - params.extra_headers：可选，合并到请求头（如部分聚合商要求 Referer）。
+#
 # 可选：
 #   params.model_backend_ref: 聊天推理后端热插拔（默认 builtin:openai_chat；亦可 entrypoint:<name> 注册到 pompeii_agent.model_backends）
 #

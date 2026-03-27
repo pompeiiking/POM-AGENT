@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .agent_types import AgentRequest, AgentResponse
+from .agent_types import AgentRequest, AgentResponse, ResponseReason
 from .agent_core import AgentCore, AgentCoreImpl
 from .kernel_config import KernelConfig
 from .types import DeviceRequest, ToolCall, ToolResult
@@ -19,6 +19,7 @@ from .session.session_store import SessionStore
 __all__ = [
     "AgentRequest",
     "AgentResponse",
+    "ResponseReason",
     "AgentCore",
     "AgentCoreImpl",
     "KernelConfig",

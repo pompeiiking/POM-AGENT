@@ -131,7 +131,7 @@ def validate_resource_configs(*, src_root: Path) -> ResourceValidationReport:
                 "memory_policy.dual_store_ref writing to memory.path (DualMemoryStore). "
                 "LongTermMemoryStore via memory_store_ref is not wired into composition; "
                 "a non-noop ref risks a second SQLite consumer on the same path. "
-                "See docs/design/长期记忆定义.md (legacy line)."
+                "See docs/design/架构设计ver0.5.md §9.8 (legacy line)."
             )
     if isinstance(session_cfg.security, str) and session_cfg.security not in security_policies.policies:
         raise ResourceValidationError(f"session.security contains unknown policy id: {session_cfg.security!r}")

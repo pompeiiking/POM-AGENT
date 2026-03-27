@@ -29,6 +29,11 @@ class SessionConfigSource:
 
 def load_session_config(source: SessionConfigSource) -> SessionConfig:
     config_data = read_config_mapping(source.path)
+    return load_session_config_from_mapping(config_data)
+
+
+def load_session_config_from_mapping(config_data: Mapping[str, Any]) -> SessionConfig:
+    """从内存 mapping 构造 SessionConfig（与 YAML/JSON/TOML 文件加载等价）。"""
     session_node = _require_mapping(config_data, "session")
     limits_data = _require_mapping(session_node, "limits")
 
@@ -47,6 +52,10 @@ def load_session_config(source: SessionConfigSource) -> SessionConfig:
         ),
         assembly_compress_early_turn_chars=_optional_nonneg_int(
             limits_data, "assembly_compress_early_turn_chars", default=0
+        ),
+        assembly_token_counter=_optional_assembly_token_counter(limits_data, "assembly_token_counter", default="heuristic"),
+        assembly_tiktoken_encoding=_optional_non_empty_str(
+            limits_data, "assembly_tiktoken_encoding", default="cl100k_base"
         ),
     )
 
@@ -181,4 +190,16 @@ def _optional_non_empty_str(parent: Mapping[str, Any], key: str, *, default: str
     if not isinstance(value, str) or not value.strip():
         raise SessionConfigLoaderError(f"field must be a non-empty string: {key}")
     return value.strip()
+
+
+def _optional_assembly_token_counter(parent: Mapping[str, Any], key: str, *, default: str) -> str:
+    if key not in parent:
+        return default
+    value = parent.get(key)
+    if not isinstance(value, str):
+        raise SessionConfigLoaderError(f"field must be a string: {key}")
+    v = value.strip().lower()
+    if v not in ("heuristic", "tiktoken"):
+        raise SessionConfigLoaderError(f"{key} must be 'heuristic' or 'tiktoken', got {value!r}")
+    return v
 

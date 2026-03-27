@@ -5,7 +5,16 @@ from datetime import datetime
 from typing import Any, Iterable
 import uuid
 
-from .session import Message, Session, SessionConfig, SessionLimits, SessionStats, SessionStatus
+from .session import (
+    InvalidSessionTransition,
+    Message,
+    Session,
+    SessionConfig,
+    SessionLimits,
+    SessionStats,
+    SessionStatus,
+    validate_session_transition,
+)
 from .session_store import SessionStore
 
 
@@ -165,6 +174,8 @@ class SessionManagerImpl(SessionManager):
     ) -> Session:
         existing = self.find_session_for_user(user_id, channel)
         if existing is not None:
+            if existing.status == SessionStatus.IDLE:
+                return self.update_status(existing.session_id, SessionStatus.ACTIVE)
             return existing
         return self.create_session(user_id, channel, config)
 
@@ -172,6 +183,10 @@ class SessionManagerImpl(SessionManager):
         return self._store.append_message(session_id, message)
 
     def update_status(self, session_id: str, new_status: SessionStatus) -> Session:
+        session = self.get_session(session_id)
+        if session is None:
+            raise KeyError(f"session {session_id!r} not found")
+        validate_session_transition(session_id, session.status, new_status)
         return self._store.set_status(session_id, new_status)
 
     def mark_idle_if_expired(

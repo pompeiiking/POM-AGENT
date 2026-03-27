@@ -6,8 +6,14 @@ resource_access:
         long_term_memory:
           read: allow
           write: allow
+          # read_requires_approval: false
+          # write_requires_approval: true
         # 是否允许将 user 多模态 image_url 传入 OpenAI 兼容请求（组装部预处理可据 tools.network_policy 再校验 URL）
         multimodal_image_url:
+          read: allow
+          write: deny
+        # 远端检索服务（memory_policy.remote_retrieval_url）调用权限
+        remote_retrieval:
           read: allow
           write: deny
     # 示例：禁止模型/用户经工具与指令写入长期记忆，仍可读检索与上下文注入
@@ -17,5 +23,8 @@ resource_access:
           read: allow
           write: deny
         multimodal_image_url:
+          read: allow
+          write: deny
+        remote_retrieval:
           read: allow
           write: deny

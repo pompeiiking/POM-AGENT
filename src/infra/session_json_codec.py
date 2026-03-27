@@ -58,6 +58,8 @@ def _config_to_dict(c: SessionConfig) -> dict[str, Any]:
             "assembly_approx_context_tokens": c.limits.assembly_approx_context_tokens,
             "assembly_compress_tool_max_chars": c.limits.assembly_compress_tool_max_chars,
             "assembly_compress_early_turn_chars": c.limits.assembly_compress_early_turn_chars,
+            "assembly_token_counter": c.limits.assembly_token_counter,
+            "assembly_tiktoken_encoding": c.limits.assembly_tiktoken_encoding,
         },
     }
 
@@ -82,8 +84,18 @@ def _config_from_dict(d: dict[str, Any]) -> SessionConfig:
             assembly_approx_context_tokens=int(lim.get("assembly_approx_context_tokens", 0)),
             assembly_compress_tool_max_chars=int(lim.get("assembly_compress_tool_max_chars", 0)),
             assembly_compress_early_turn_chars=int(lim.get("assembly_compress_early_turn_chars", 0)),
+            assembly_token_counter=_lim_token_counter(lim),
+            assembly_tiktoken_encoding=str(lim.get("assembly_tiktoken_encoding", "cl100k_base")),
         ),
     )
+
+
+def _lim_token_counter(lim: dict[str, Any]) -> str:
+    raw = lim.get("assembly_token_counter", "heuristic")
+    if not isinstance(raw, str):
+        return "heuristic"
+    v = raw.strip().lower()
+    return v if v in ("heuristic", "tiktoken") else "heuristic"
 
 
 def _stats_to_dict(s: SessionStats) -> dict[str, Any]:

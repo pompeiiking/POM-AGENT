@@ -63,6 +63,30 @@ class StandardMemoryRepository(Protocol):
         """插入/更新后同步 FTS 索引行。"""
         ...
 
+    def get_preference_row(self, user_id: str, key: str) -> StandardMemoryRow | None:
+        """按 user_id + key 查找非 tombstone 的 preference 行；不存在返回 None。"""
+        ...
+
+    def list_preference_rows(self, user_id: str, *, limit: int = 100) -> Sequence[StandardMemoryRow]:
+        """列举 user_id 下所有非 tombstone 的 preference 行（按 created_at 降序）。"""
+        ...
+
+    def get_fact_row(self, user_id: str, statement_prefix: str) -> StandardMemoryRow | None:
+        """按 user_id + body_text 前缀查找非 tombstone 的 fact 行；不存在返回 None。"""
+        ...
+
+    def list_fact_rows(self, user_id: str, *, limit: int = 100) -> Sequence[StandardMemoryRow]:
+        """列举 user_id 下所有非 tombstone 的 fact 行（按 created_at 降序）。"""
+        ...
+
+    def list_active_memory_ids_for_user(self, user_id: str, *, limit: int) -> Sequence[str]:
+        """列举 user_id 下非 tombstone 的 memory_id（按 created_at 降序）。"""
+        ...
+
+    def purge_tombstoned_rows(self, *, limit: int) -> int:
+        """物理删除标准库中已 tombstone 的行（向量与 FTS 已在 tombstone 时清理）；返回删除条数。"""
+        ...
+
 
 class VectorMemoryIndex(Protocol):
     def clear_memory(self, memory_id: str) -> None:

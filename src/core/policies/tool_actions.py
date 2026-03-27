@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from core.agent_types import AgentResponse
+from core.agent_types import AgentResponse, ResponseReason
 from core.policies.output_handlers import OutputStep
 from core.session.message_factory import new_message
 from core.session.openai_message_format import assistant_content_openai_v1, ensure_tool_call_id, tool_content_openai_v1
@@ -30,7 +30,7 @@ class ToolDeps:
     sanitize_tool_result: Callable[[Session, ToolResult], ToolResult] | None = None
 
 
-def step_error(*, request_id: str, session: Session, context: Any, error: str, reason: str) -> OutputStep:
+def step_error(*, request_id: str, session: Session, context: Any, error: str, reason: ResponseReason) -> OutputStep:
     return OutputStep(
         response=AgentResponse(
             request_id=request_id,
@@ -78,7 +78,7 @@ def step_device_request(
             session=tc.session,
             reply_text=None,
             error=None,
-            reason="device_request",
+            reason=ResponseReason.DEVICE_REQUEST,
             pending_tool_call=tc_tool,
             pending_device_request=device_request,
         ),

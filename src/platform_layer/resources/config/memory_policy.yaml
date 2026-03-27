@@ -27,3 +27,6 @@ memory_policy:
   fts_enabled: true
   vector_max_candidates: 200
   channel_filter: match_or_global
+  # 可选：独立向量/检索服务（HTTP）。返回 JSON list[{memory_id,text,score}]
+  # remote_retrieval_url: "http://127.0.0.1:9000/retrieve"
+  # remote_timeout_seconds: 5

@@ -33,6 +33,13 @@ class StatusEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class PolicyNoticeEvent:
+    kind: Literal["policy_notice"]
+    policy: str
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
 class ConfirmationEvent:
     kind: Literal["confirmation"]
     prompt: str
@@ -60,6 +67,7 @@ PortEvent = Union[
     ReplyEvent,
     ErrorEvent,
     StatusEvent,
+    PolicyNoticeEvent,
     ConfirmationEvent,
     DelegateEvent,
     DeviceRequestEvent,

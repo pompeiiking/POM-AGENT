@@ -14,11 +14,17 @@ import threading
 from threading import local
 from typing import Callable, Iterable, Protocol
 import sys
+import sqlite3
+import pickle
+from pathlib import Path
 
 from dataclasses import dataclass
 from uuid import uuid4
 
-from core import AgentCore, AgentRequest, AgentResponse
+import infra.logging_config  # noqa: F401 — LogRecord 注入 request_id / user_id / channel
+from infra.request_context import bind_request_context, reset_request_context
+
+from core import AgentCore, AgentRequest, AgentResponse, ResponseReason
 from core.types import DeviceRequest, ToolCall, ToolResult
 from .request_factory import RequestFactory, cli_request_factory, session_request_factory
 from .events import (
@@ -26,6 +32,7 @@ from .events import (
     DelegateEvent,
     DeviceRequestEvent,
     ErrorEvent,
+    PolicyNoticeEvent,
     PortEvent,
     ReplyEvent,
     StatusEvent,
@@ -96,6 +103,7 @@ class CliMode(InteractionMode):
         return line.strip().lower() in {"exit", "quit"}
 
 
+# STUB(2025-03-27): HttpMode 仅用于类型标识，不实现 stdin 循环 — HTTP 运行时已复用 HttpMode；WS 服务端接入时同理
 class HttpMode(InteractionMode):
     """
     HTTP 由 Web 框架按请求驱动，不经过 `receive()` / `should_exit()` 循环。
@@ -114,6 +122,7 @@ class HttpMode(InteractionMode):
         )
 
 
+# STUB(2025-03-27): WsMode 仅用于类型与文档占位，无独立 WS 服务端 — 实现 WS 服务端时在收包处调 handle()
 class WsMode(InteractionMode):
     """
     WebSocket 由连接/消息回调驱动；若实现 WS 服务端，请在收包后调用 `GenericAgentPort.handle()`，
@@ -166,6 +175,7 @@ class GenericAgentPort(AgentPort):
         core: AgentCore,
         request_factory: RequestFactory,
         emitter: PortEmitter,
+        pending_state_sqlite_path: Path | None = None,
     ) -> None:
         self._mode = mode
         self._core = core
@@ -174,6 +184,22 @@ class GenericAgentPort(AgentPort):
         self._pending_confirmation: dict[tuple[str, str], _PendingConfirmation] = {}
         self._pending_device_request: dict[tuple[str, str], _PendingDeviceRequest] = {}
         self._state_lock = threading.Lock()
+        self._pending_db: sqlite3.Connection | None = None
+        if pending_state_sqlite_path is not None:
+            pending_state_sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+            self._pending_db = sqlite3.connect(str(pending_state_sqlite_path), check_same_thread=False)
+            self._pending_db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS port_pending_state (
+                  kind TEXT NOT NULL,
+                  user_id TEXT NOT NULL,
+                  channel TEXT NOT NULL,
+                  blob BLOB NOT NULL,
+                  PRIMARY KEY(kind, user_id, channel)
+                )
+                """
+            )
+            self._pending_db.commit()
 
     def handle(
         self,
@@ -198,28 +224,38 @@ class GenericAgentPort(AgentPort):
         if emitter is not None:
             _emitter_ctx.current = emitter
         try:
-            with self._state_lock:
-                pending = self._pending_confirmation.pop(key, None)
+            pending = self._pending_confirmation_pop(key)
             if pending is not None:
                 self._handle_confirmation_input(pending, input_event)
                 return
 
-            with self._state_lock:
-                device_pending = self._pending_device_request.pop(key, None)
+            device_pending = self._pending_device_request_pop(key)
             if device_pending is not None:
                 self._handle_device_result_input(device_pending, input_event)
                 return
 
             user_message = _require_user_message(input_event)
             if user_message is None:
-                for event in _invalid_input_events(input_event):
-                    self.emit(event)
+                tok = bind_request_context(request_id=str(uuid4()), user_id=uid, channel=ch)
+                try:
+                    for event in _invalid_input_events(input_event):
+                        self.emit(event)
+                finally:
+                    reset_request_context(tok)
                 return
 
             request = rf(user_message)
-            stream_cb = self._stream_delta_callback() if request.stream else None
-            response = self._core.handle(request, stream_delta=stream_cb)
-            self._handle_core_response(request, response)
+            tok = bind_request_context(
+                request_id=request.request_id,
+                user_id=request.user_id,
+                channel=request.channel,
+            )
+            try:
+                stream_cb = self._stream_delta_callback() if request.stream else None
+                response = self._core.handle(request, stream_delta=stream_cb)
+                self._handle_core_response(request, response)
+            finally:
+                reset_request_context(tok)
         finally:
             if emitter is not None:
                 try:
@@ -245,8 +281,7 @@ class GenericAgentPort(AgentPort):
         sess_key = (request.user_id, request.channel)
         pending = _confirmation_pending(request, response)
         if pending is not None:
-            with self._state_lock:
-                self._pending_confirmation[sess_key] = pending
+            self._pending_confirmation_put(sess_key, pending)
             self.emit(
                 ConfirmationEvent(
                     kind="confirmation",
@@ -259,8 +294,7 @@ class GenericAgentPort(AgentPort):
 
         device_pending = _device_request_pending(request, response)
         if device_pending is not None:
-            with self._state_lock:
-                self._pending_device_request[sess_key] = device_pending
+            self._pending_device_request_put(sess_key, device_pending)
             self.emit(
                 DeviceRequestEvent(
                     kind="device_request",
@@ -283,12 +317,17 @@ class GenericAgentPort(AgentPort):
             self.emit(event)
 
     def _handle_confirmation_input(self, pending: _PendingConfirmation, input_event: PortInput) -> None:
-        command = _as_system_command(input_event)
-        parsed = _parse_confirmation_command(command)
-        decision = _confirmation_decision(parsed, expected_id=pending.confirmation_id)
-        action = _confirmation_actions(self).get(decision)
-        run = action if action is not None else _confirmation_actions(self)["deny"]
-        run(pending)
+        req = pending.request
+        tok = bind_request_context(request_id=req.request_id, user_id=req.user_id, channel=req.channel)
+        try:
+            command = _as_system_command(input_event)
+            parsed = _parse_confirmation_command(command)
+            decision = _confirmation_decision(parsed, expected_id=pending.confirmation_id)
+            action = _confirmation_actions(self).get(decision)
+            run = action if action is not None else _confirmation_actions(self)["deny"]
+            run(pending)
+        finally:
+            reset_request_context(tok)
 
     def _confirm_and_run(self, pending: _PendingConfirmation) -> None:
         self.emit(StatusEvent(kind="status", status="confirmation: approved"))
@@ -303,17 +342,22 @@ class GenericAgentPort(AgentPort):
         self.emit(StatusEvent(kind="status", status="confirmation: denied"))
 
     def _handle_device_result_input(self, pending: _PendingDeviceRequest, input_event: PortInput) -> None:
-        device_result = _require_device_result(input_event)
-        if device_result is None:
-            for event in _invalid_input_events(input_event):
-                self.emit(event)
-            return
+        req = pending.request
+        tok = bind_request_context(request_id=req.request_id, user_id=req.user_id, channel=req.channel)
+        try:
+            device_result = _require_device_result(input_event)
+            if device_result is None:
+                for event in _invalid_input_events(input_event):
+                    self.emit(event)
+                return
 
-        parsed = _parse_device_result_json(device_result.payload)
-        decision = _device_result_decision(parsed, expected_id=pending.device_request_id)
-        action = _device_result_actions(self).get(decision)
-        run = action if action is not None else _device_result_actions(self)["reject"]
-        run(pending, parsed)
+            parsed = _parse_device_result_json(device_result.payload)
+            decision = _device_result_decision(parsed, expected_id=pending.device_request_id)
+            action = _device_result_actions(self).get(decision)
+            run = action if action is not None else _device_result_actions(self)["reject"]
+            run(pending, parsed)
+        finally:
+            reset_request_context(tok)
 
     def _accept_device_result(self, pending: _PendingDeviceRequest, parsed: "_ParsedDeviceResult") -> None:
         self.emit(StatusEvent(kind="status", status="device_result: accepted"))
@@ -331,6 +375,74 @@ class GenericAgentPort(AgentPort):
     def _reject_device_result(self, pending: _PendingDeviceRequest, parsed: "_ParsedDeviceResult") -> None:
         self.emit(StatusEvent(kind="status", status="device_result: rejected"))
         self.emit(ErrorEvent(kind="error", message="invalid device_result", reason="device_result_invalid"))
+
+    def _pending_confirmation_put(self, key: tuple[str, str], pending: "_PendingConfirmation") -> None:
+        if self._pending_db is None:
+            with self._state_lock:
+                self._pending_confirmation[key] = pending
+            return
+        user_id, channel = key
+        blob = sqlite3.Binary(pickle.dumps(pending))
+        with self._state_lock:
+            self._pending_db.execute(
+                "INSERT OR REPLACE INTO port_pending_state(kind,user_id,channel,blob) VALUES(?,?,?,?)",
+                ("confirmation", user_id, channel, blob),
+            )
+            self._pending_db.commit()
+
+    def _pending_confirmation_pop(self, key: tuple[str, str]) -> "_PendingConfirmation | None":
+        if self._pending_db is None:
+            with self._state_lock:
+                return self._pending_confirmation.pop(key, None)
+        user_id, channel = key
+        with self._state_lock:
+            cur = self._pending_db.execute(
+                "SELECT blob FROM port_pending_state WHERE kind=? AND user_id=? AND channel=?",
+                ("confirmation", user_id, channel),
+            )
+            row = cur.fetchone()
+            self._pending_db.execute(
+                "DELETE FROM port_pending_state WHERE kind=? AND user_id=? AND channel=?",
+                ("confirmation", user_id, channel),
+            )
+            self._pending_db.commit()
+        if row is None:
+            return None
+        return pickle.loads(bytes(row[0]))
+
+    def _pending_device_request_put(self, key: tuple[str, str], pending: "_PendingDeviceRequest") -> None:
+        if self._pending_db is None:
+            with self._state_lock:
+                self._pending_device_request[key] = pending
+            return
+        user_id, channel = key
+        blob = sqlite3.Binary(pickle.dumps(pending))
+        with self._state_lock:
+            self._pending_db.execute(
+                "INSERT OR REPLACE INTO port_pending_state(kind,user_id,channel,blob) VALUES(?,?,?,?)",
+                ("device", user_id, channel, blob),
+            )
+            self._pending_db.commit()
+
+    def _pending_device_request_pop(self, key: tuple[str, str]) -> "_PendingDeviceRequest | None":
+        if self._pending_db is None:
+            with self._state_lock:
+                return self._pending_device_request.pop(key, None)
+        user_id, channel = key
+        with self._state_lock:
+            cur = self._pending_db.execute(
+                "SELECT blob FROM port_pending_state WHERE kind=? AND user_id=? AND channel=?",
+                ("device", user_id, channel),
+            )
+            row = cur.fetchone()
+            self._pending_db.execute(
+                "DELETE FROM port_pending_state WHERE kind=? AND user_id=? AND channel=?",
+                ("device", user_id, channel),
+            )
+            self._pending_db.commit()
+        if row is None:
+            return None
+        return pickle.loads(bytes(row[0]))
 
 
 # ============================================================
@@ -505,6 +617,15 @@ def _response_event_builders() -> dict[str, Callable[[AgentResponse], Iterable[P
 
 def _build_reply_events(response: AgentResponse) -> Iterable[PortEvent]:
     text = response.reply_text if response.reply_text is not None else ""
+    if response.reason == ResponseReason.RESOURCE_APPROVAL_REQUIRED:
+        return (
+            PolicyNoticeEvent(
+                kind="policy_notice",
+                policy="resource_access",
+                detail="operation requires approval",
+            ),
+            ReplyEvent(kind="reply", text=text),
+        )
     return (ReplyEvent(kind="reply", text=text),)
 
 
@@ -517,11 +638,12 @@ def _build_error_events(response: AgentResponse) -> Iterable[PortEvent]:
     return build(message=message, reason=reason)
 
 
-def _error_reason_event_builders() -> dict[str | None, Callable[..., Iterable[PortEvent]]]:
+def _error_reason_event_builders() -> dict[ResponseReason | None, Callable[..., Iterable[PortEvent]]]:
     return {
-        "max_tool_calls": _build_max_tool_calls_events,
-        "max_loops": _build_max_loops_events,
-        "unsupported_output_kind": _build_unsupported_output_events,
+        ResponseReason.MAX_TOOL_CALLS: _build_max_tool_calls_events,
+        ResponseReason.MAX_LOOPS: _build_max_loops_events,
+        ResponseReason.REPEATED_TOOL_CALL: _build_repeated_tool_call_events,
+        ResponseReason.UNSUPPORTED_OUTPUT_KIND: _build_unsupported_output_events,
         None: _build_plain_error_events,
     }
 
@@ -540,6 +662,13 @@ def _build_max_tool_calls_events(*, message: str, reason: str | None) -> Iterabl
 def _build_max_loops_events(*, message: str, reason: str | None) -> Iterable[PortEvent]:
     return (
         StatusEvent(kind="status", status="run_terminated: max_loops exceeded"),
+        ErrorEvent(kind="error", message=message, reason=reason),
+    )
+
+
+def _build_repeated_tool_call_events(*, message: str, reason: str | None) -> Iterable[PortEvent]:
+    return (
+        StatusEvent(kind="status", status="run_terminated: repeated identical tool_call"),
         ErrorEvent(kind="error", message=message, reason=reason),
     )
 
@@ -563,6 +692,7 @@ def _cli_event_handlers() -> dict[str, EventHandler]:
         "reply": _render_reply_event,
         "error": _render_error_event,
         "status": _render_status_event,
+        "policy_notice": _render_policy_notice_event,
         "confirmation": _render_confirmation_event,
         "delegate": _render_delegate_event,
         "device_request": _render_device_request_event,
@@ -586,6 +716,13 @@ def _render_error_event(event: PortEvent) -> None:
 def _render_status_event(event: PortEvent) -> None:
     if isinstance(event, StatusEvent):
         sys.stdout.write(f"[STATUS] {event.status}\n")
+        return
+    _render_unknown_event(event)
+
+
+def _render_policy_notice_event(event: PortEvent) -> None:
+    if isinstance(event, PolicyNoticeEvent):
+        sys.stdout.write(f"[POLICY] {event.policy}: {event.detail}\n")
         return
     _render_unknown_event(event)
 

@@ -92,6 +92,21 @@ class SessionManager(ABC):
         """将会话标记为 ARCHIVED（归档）。具体归档逻辑（写长期存储等）可由上层或实现方另处实现。"""
         ...
 
+    @abstractmethod
+    def trigger_destroy(self, session_id: str, *, physical_delete: bool = False) -> Session | None:
+        """
+        将会话标记为 DESTROYED（终态）。
+        
+        Args:
+            session_id: 会话 ID
+            physical_delete: 若为 True，则在标记 DESTROYED 后物理删除会话数据
+        
+        Returns:
+            若 physical_delete=False，返回更新后的 Session；
+            若 physical_delete=True，返回 None（数据已删除）。
+        """
+        ...
+
     def list_archives_for_user(self, user_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
         """归档摘要列表（SQLite 后端有数据时非空）。"""
         return self._store.list_archives_for_user(user_id, limit=limit)
@@ -207,3 +222,10 @@ class SessionManagerImpl(SessionManager):
 
     def trigger_archive(self, session_id: str) -> Session:
         return self.update_status(session_id, SessionStatus.ARCHIVED)
+
+    def trigger_destroy(self, session_id: str, *, physical_delete: bool = False) -> Session | None:
+        session = self.update_status(session_id, SessionStatus.DESTROYED)
+        if physical_delete:
+            self._store.delete_session(session_id)
+            return None
+        return session

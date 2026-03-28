@@ -1,6 +1,6 @@
 ## Pompeii-Agent 当前状态（快照）
 
-**发布线**：`0.5.0`（见 `src/app/version.py`）
+**发布线**：`0.5.1`（见 `src/app/version.py`）
 
 ### 概览
 - **目标**：以 Python 为起点，构建可长期演进的微内核 Agent 基础设施。
@@ -30,10 +30,10 @@
 
 ### 活跃 STUB 清单（必须持续清理）
 > 规则：所有占位实现必须包含 `// STUB(YYYY-MM-DD): 原因 — 替换计划`
-- `src/port/agent_port.py` — `HttpMode`/`WsMode` 仅用于类型与文档（不实现 stdin 循环）；`app/http_runtime.py` 已提供 **`WS /ws`** 收包并复用 `GenericAgentPort.handle()`；独立 WS 网关形态与多租户仍属后续
+- ~~`src/port/agent_port.py`~~ — `HttpMode`/`WsMode` **已落地**：HTTP 与 WS 运行时均在 `app/http_runtime.py` 实现，STUB 标注已移除
 - ~~`src/port/request_factory.py`~~ — `session_request_factory` / `http_request_factory` / `ws_request_factory` 已落地（按会话分区、每条消息独立 `request_id`）
 - `src/modules/model/impl.py` — OpenAI 兼容 Chat 已可用；**响应 `tool_calls` 已解析**；**SSE 流式**（`params.stream` + 入站 `stream`、无 `params.tools`）已接入；**原生 Chat 流式 HTTP 响应体**（如 chunked SSE 直出）仍可选扩展
-- `src/modules/tools/impl.py` — 本地工具 + 可选 MCP stdio 桥接；设备执行器仍待替换
+- ~~`src/modules/tools/impl.py`~~ — **设备后端已完整实现并集成**：`device_backend.py` + `device_backend_registry.py` + `composition.py` 装配链贯通，支持 `builtin:simulator` / `builtin:noop` / `entrypoint`
 - `src/modules/assembly/impl.py` — P1：`formatting`、单条字符预算、总量 token 预算（`assembly_approx_context_tokens` + **`assembly_token_counter`：heuristic / tiktoken**）；**LLM 摘要仍属可选增强**
 
 ### 仓库与 STUB 何时完成（建议节奏）
@@ -54,10 +54,10 @@
 
 | 设计概念（ver0.4） | 含义摘要 | 当前代码现状 |
 |-------------------|----------|--------------|
-| **信息缓存** | 会话内 `messages` 等热数据 | 有：`infra/SqliteSessionStore`（文件或 `:memory:` 临时库） |
+| **信息缓存** | 会话内 `messages` 等热数据 | 有：`infra/SqliteSessionStore`（文件或 `:memory:` 临时库）；**Session DESTROYED 状态与物理删除已实现** |
 | **长期存储** | 归档会话、画像、摘要；引擎可 SQLite/PG 等 | **部分**：`SqliteSessionStore` 在会话 **`ARCHIVED`** 时写入 **`session_archives`**（规则摘要 + 元数据）；**长期记忆双库**（`memory_items` + FTS + 向量投影）已由 `MemoryOrchestrator` 落地；用户画像 / GraphRAG 等仍未实现 |
 | **向量 / 检索** | 归档文本摘要 + 向量嵌入、混合检索/GraphRAG | **部分**：同库 SQLite 向量表 + 余弦 + RRF；嵌入默认 `builtin:hash`，可选 **`builtin:openai_compatible`**（`/v1/embeddings`）；专用向量引擎 / HNSW / GraphRAG 仍为后续项 |
-| **资源区 / 资源访问守门** | 关卡⑤：读写分级、高敏感经核心审批等 | **部分**：`resource_access.yaml` + `KNOWN_RESOURCE_IDS` 配置校验 + 长期记忆 + **`multimodal_image_url`**（与 `http_url_guard` 联动）；**无**通用资源目录、高敏「审批」流仍待扩展 |
+| **资源区 / 资源访问守门** | 关卡⑤：读写分级、高敏感经核心审批等 | **已增强**：`resource_access.yaml` + **8 类 `KNOWN_RESOURCE_IDS`**（含 `session_data`/`tool_execution`/`device_access`/`external_api`/`filesystem`）+ **审计日志**（`ResourceAccessEvaluator.check_and_audit`）+ **strict profile**；高敏「审批」流仍待扩展 |
 | **platform_layer** | 在本仓库中主要承担**静态配置与资源路径** | **仅有** `resources/config/*.yaml` 等；**不是**设计里的「数据部」全套实现 |
 
 结论：**会话持久化 + 归档摘要 + 长期记忆双库（含可选 OpenAI 兼容嵌入）已部分落地**；**画像 / 资源守门 / 独立向量服务**仍为后续；`platform_layer` 仍以**配置与文件布局**为主。

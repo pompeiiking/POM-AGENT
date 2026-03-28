@@ -39,3 +39,11 @@ class SessionStore(ABC):
     def update_archive_llm_summary(self, session_id: str, *, status: str, llm_text: str | None = None) -> None:
         """归档 LLM 摘要状态；SQLite 实现写入 session_archives.llm_* 列。"""
         return
+
+    @abstractmethod
+    def delete_session(self, session_id: str) -> bool:
+        """
+        物理删除会话（DESTROYED 状态后的最终清理）。
+        返回 True 表示删除成功，False 表示会话不存在。
+        """
+        ...

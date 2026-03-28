@@ -103,7 +103,7 @@ class CliMode(InteractionMode):
         return line.strip().lower() in {"exit", "quit"}
 
 
-# STUB(2025-03-27): HttpMode 仅用于类型标识，不实现 stdin 循环 — HTTP 运行时已复用 HttpMode；WS 服务端接入时同理
+# HttpMode 仅用于类型标识，不实现 stdin 循环 — HTTP 运行时已在 app/http_runtime.py 落地
 class HttpMode(InteractionMode):
     """
     HTTP 由 Web 框架按请求驱动，不经过 `receive()` / `should_exit()` 循环。
@@ -122,11 +122,11 @@ class HttpMode(InteractionMode):
         )
 
 
-# STUB(2025-03-27): WsMode 仅用于类型与文档占位，无独立 WS 服务端 — 实现 WS 服务端时在收包处调 handle()
+# WsMode 仅用于类型标识，不实现 stdin 循环 — WS 运行时已在 app/http_runtime.py 的 WS /ws 端点落地
 class WsMode(InteractionMode):
     """
-    WebSocket 由连接/消息回调驱动；若实现 WS 服务端，请在收包后调用 `GenericAgentPort.handle()`，
-    勿使用本类的 `receive()`。
+    WebSocket 由连接/消息回调驱动；WS 服务端已在 `app/http_runtime.py` 的 `WS /ws` 端点实现，
+    收包后调用 `GenericAgentPort.handle()`。
     """
 
     def receive(self) -> str | None:

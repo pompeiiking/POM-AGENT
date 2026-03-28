@@ -16,6 +16,27 @@ resource_access:
         remote_retrieval:
           read: allow
           write: deny
+        # 会话数据访问
+        session_data:
+          read: allow
+          write: allow
+        # 工具执行权限
+        tool_execution:
+          read: allow
+          write: allow
+        # 设备访问权限
+        device_access:
+          read: allow
+          write: allow
+        # 外部 API 调用
+        external_api:
+          read: allow
+          write: deny
+        # 文件系统访问
+        filesystem:
+          read: allow
+          write: deny
+
     # 示例：禁止模型/用户经工具与指令写入长期记忆，仍可读检索与上下文注入
     memory_readonly:
       resources:
@@ -27,4 +48,49 @@ resource_access:
           write: deny
         remote_retrieval:
           read: allow
+          write: deny
+        session_data:
+          read: allow
+          write: allow
+        tool_execution:
+          read: allow
+          write: allow
+        device_access:
+          read: allow
+          write: deny
+        external_api:
+          read: allow
+          write: deny
+        filesystem:
+          read: allow
+          write: deny
+
+    # 严格模式：最小权限原则
+    strict:
+      resources:
+        long_term_memory:
+          read: allow
+          write: deny
+          write_requires_approval: true
+        multimodal_image_url:
+          read: deny
+          write: deny
+        remote_retrieval:
+          read: allow
+          write: deny
+        session_data:
+          read: allow
+          write: allow
+        tool_execution:
+          read: allow
+          write: allow
+          write_requires_approval: true
+        device_access:
+          read: deny
+          write: deny
+        external_api:
+          read: deny
+          write: deny
+        filesystem:
+          read: deny
           write: deny

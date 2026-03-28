@@ -1,5 +1,41 @@
 ## CHANGELOG
 
+### Release 0.5.1 — Design Evolution（2026-03-28）
+
+**版本号**：`0.5.1`。
+
+- **P2 设备后端抽象层**：
+  - 新增 `modules/tools/device_backend.py`：`DeviceBackend` Protocol、`LocalSimulatorBackend`（模拟 camera/microphone/speaker/display/filesystem）、`CompositeDeviceBackend`（多后端组合）、`device_result_to_tool_result` 转换。
+  - 新增 `app/device_backend_registry.py`：`NoopDeviceBackend`、`resolve_device_backend`（支持 `builtin:simulator`/`builtin:noop`/`entrypoint:<name>`）、`build_device_backend`。
+  - `tools.yaml` 新增 `device_backend_refs` 配置项。
+  - `tool_registry_loader.py` 新增 `device_backend_refs` 字段解析。
+  - 测试：`tests/test_device_backend_registry.py`（25 用例）。
+
+- **P3 Session DESTROYED 状态与清理机制**：
+  - `SessionStore` 新增抽象方法 `delete_session`。
+  - `SqliteSessionStore.delete_session` 实现物理删除（同时清理 `sessions` 和 `session_archives` 表）。
+  - `SessionManager` 新增抽象方法 `trigger_destroy(session_id, physical_delete=False)`。
+  - `SessionManagerImpl.trigger_destroy` 实现状态转换与可选物理删除。
+  - 测试：`tests/test_session_destroy.py`（9 用例）。
+
+- **P6 关卡⑤ 资源访问增强**：
+  - `KNOWN_RESOURCE_IDS` 从 3 类扩展为 8 类：新增 `session_data`、`tool_execution`、`device_access`、`external_api`、`filesystem`。
+  - `ResourceAccessEvaluator` 新增 `check_and_audit` 方法与 `ResourceAccessEvent` 审计事件。
+  - 审计日志输出到 `pompeii.resource_audit` logger。
+  - `resource_access.yaml` 新增 `strict` profile（最小权限原则）。
+
+- **测试**：全量 34 项新增测试通过。
+
+- **装配链集成**：
+  - `composition.py` 集成 `build_device_backend`，从 `tools.yaml` 的 `device_backend_refs` 构建设备后端并注入 `ToolModuleImpl`。
+  - `ToolModuleImpl` 新增 `device_backend` 属性，支持同步设备执行模式。
+
+- **STUB 清理**：
+  - `HttpMode`/`WsMode` 移除 STUB 标注（HTTP/WS 运行时已在 `http_runtime.py` 落地）。
+  - `ToolModuleImpl` 设备执行器 STUB 已完全替换为真实实现。
+
+---
+
 ### Docs consistency check fix（2026-03-27）
 
 **版本号**：`0.5.0`。

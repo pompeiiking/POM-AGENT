@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from importlib import import_module
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Protocol
 
 from core.session.session import Session
 from core.types import DeviceRequest, ToolCall, ToolResult
@@ -12,12 +12,20 @@ from .network_policy import ToolNetworkPolicyConfig
 ToolHandler = Callable[[Session, ToolCall], ToolResult]
 
 
+class DeviceBackendProtocol(Protocol):
+    """设备后端 Protocol（避免循环导入）"""
+
+    def supports(self, device: str) -> bool: ...
+    def execute(self, request: DeviceRequest) -> Any: ...
+
+
 class ToolModuleImpl(ToolModule):
     """
     最终版工具模块：
     - 本地工具由配置声明并动态加载（无硬编码工具名）
     - 设备请求路由由配置声明（无 core 内硬编码）
     - 本地未命中时可回退 MCP
+    - 设备后端可注入用于同步设备执行（开发/测试）
     """
 
     def __init__(
@@ -27,11 +35,18 @@ class ToolModuleImpl(ToolModule):
         device_routes: Mapping[str, DeviceRequest] | None = None,
         mcp: McpToolBridge | None = None,
         network_policy: ToolNetworkPolicyConfig | None = None,
+        device_backend: DeviceBackendProtocol | None = None,
     ) -> None:
         self._local_handlers: dict[str, ToolHandler] = dict(local_handlers or {})
         self._device_routes: dict[str, DeviceRequest] = dict(device_routes or {})
         self._mcp = mcp
         self._network_policy = network_policy
+        self._device_backend = device_backend
+
+    @property
+    def device_backend(self) -> DeviceBackendProtocol | None:
+        """获取设备后端（供 Core 在同步模式下直接执行设备请求）"""
+        return self._device_backend
 
     def execute(self, session: Session, tool_call: ToolCall) -> ToolResult:
         pol = self._network_policy

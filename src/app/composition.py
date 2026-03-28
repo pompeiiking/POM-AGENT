@@ -48,6 +48,7 @@ from modules.model.config import ModelRegistry
 from modules.tools.mcp_bridge import McpToolBridge
 from core.types import DeviceRequest
 from infra.prompt_cache import PromptCache
+from app.device_backend_registry import build_device_backend
 
 
 ConfigProvider = Callable[[str, str], SessionConfig]
@@ -307,10 +308,15 @@ def _build_tools(
         name: DeviceRequest(device=route.device, command=route.command, parameters=route.fixed_parameters)
         for name, route in cfg.device_routes.items()
     }
+    device_backend = build_device_backend(
+        list(cfg.device_backend_refs) if cfg.device_backend_refs else None,
+        fallback_to_simulator=True,
+    )
     return ToolModuleImpl(
         local_handlers=local_handlers,
         device_routes=device_routes,
         mcp=_load_mcp_bridge(src_root),
         network_policy=cfg.network_policy,
+        device_backend=device_backend,
     )
 

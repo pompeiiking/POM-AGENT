@@ -228,3 +228,21 @@ class SqliteSessionStore(SessionStore):
             }
             for r in rows
         ]
+
+    def delete_session(self, session_id: str) -> bool:
+        """
+        物理删除会话（DESTROYED 状态后的最终清理）。
+        同时删除 sessions 表和 session_archives 表中的记录。
+        """
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM sessions WHERE session_id = ?",
+                (session_id,),
+            )
+            deleted_sessions = cur.rowcount > 0
+            self._conn.execute(
+                "DELETE FROM session_archives WHERE session_id = ?",
+                (session_id,),
+            )
+            self._conn.commit()
+            return deleted_sessions

@@ -28,6 +28,7 @@ class ToolRegistryConfig:
     enable_entrypoints: bool
     entrypoint_group: str
     network_policy: ToolNetworkPolicyConfig
+    device_backend_refs: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -45,12 +46,14 @@ def load_tool_registry_config(source: ToolRegistrySource) -> ToolRegistryConfig:
     if not entrypoint_group:
         raise ToolRegistryLoaderError("tools.entrypoint_group must be non-empty string")
     net = _parse_network_policy(root.get("network_policy"))
+    device_backend_refs = _parse_device_backend_refs(root.get("device_backend_refs"))
     return ToolRegistryConfig(
         local_handlers=local,
         device_routes=routes,
         enable_entrypoints=enable_entrypoints,
         entrypoint_group=entrypoint_group,
         network_policy=net,
+        device_backend_refs=device_backend_refs,
     )
 
 
@@ -96,6 +99,25 @@ def _parse_nonempty_str_list(raw: Any, path: str) -> list[str]:
             raise ToolRegistryLoaderError(f"{path}[{i}] must be non-empty string")
         out.append(item.strip())
     return out
+
+
+def _parse_device_backend_refs(raw: Any) -> tuple[str, ...]:
+    """解析设备后端引用列表，默认使用本地模拟器"""
+    if raw is None:
+        return ("builtin:simulator",)
+    if not isinstance(raw, list):
+        raise ToolRegistryLoaderError("tools.device_backend_refs must be a list")
+    out: list[str] = []
+    for i, item in enumerate(raw):
+        if not isinstance(item, str) or not item.strip():
+            raise ToolRegistryLoaderError(f"tools.device_backend_refs[{i}] must be non-empty string")
+        ref = item.strip()
+        if ":" not in ref:
+            raise ToolRegistryLoaderError(
+                f"tools.device_backend_refs[{i}] must be 'prefix:name' format (e.g., builtin:simulator)"
+            )
+        out.append(ref)
+    return tuple(out) if out else ("builtin:simulator",)
 
 
 def _parse_local_handlers(raw: Any) -> dict[str, str]:

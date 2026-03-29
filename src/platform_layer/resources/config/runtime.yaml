@@ -1,0 +1,10 @@
+# 运行时行为（非密钥）。会话存储统一为 SQLite（见 infra/SqliteSessionStore）。
+session_store:
+  backend: sqlite
+  sqlite_path: platform_layer/resources/data/sessions.db
+
+# 可选：CLI stdin 循环使用的 InteractionMode（默认 builtin:cli）；HTTP 仍见 app.http_runtime
+# port:
+#   interaction_mode_ref: "builtin:cli"   # | builtin:http | builtin:ws | entrypoint:<name>
+#   pending_state_backend: "memory"        # memory | sqlite_shared（多 worker 共享待确认/待设备）
+#   pending_state_sqlite_path: "platform_layer/resources/data/port_pending.db"

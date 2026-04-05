@@ -1,4 +1,0 @@
-resource_index:
-  active_security_policy: "baseline"
-  active_storage_profile: "default"
-  active_resource_access_profile: "default"

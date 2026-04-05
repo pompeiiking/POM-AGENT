@@ -1,5 +1,0 @@
-include README.md
-recursive-include src/platform_layer/resources *.yaml *.db
-recursive-include src/platform_layer/resources/config *.yaml
-recursive-include src/platform_layer/resources/data *.db
-recursive-include docs *.md
